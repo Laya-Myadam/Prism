@@ -1,6 +1,5 @@
 import os
 import pdfplumber
-import streamlit as st
 from pathlib import Path
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
