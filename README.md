@@ -1,4 +1,4 @@
-# PRISM — Construction Intelligence Platform
+# PRISM — Gen AI Multi Modal Intelligence Platform
 
 > Upload your contracts, blueprints, RFIs, and daily reports. Get instant AI-powered insights, risk flags, and ready-to-send documents.
 
