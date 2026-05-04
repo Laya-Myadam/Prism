@@ -1,92 +1,208 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import type { AppState } from "../App";
 
-interface Props {
-  appState: AppState;
-}
+const pageTitles: Record<string, { title: string; sub: string }> = {
+  "/dashboard":    { title: "Dashboard",                  sub: "Project overview & risk intelligence" },
+  "/projects":     { title: "Projects",                   sub: "Manage your construction projects" },
+  "/documents":    { title: "Documents",                  sub: "AI-powered document analysis" },
+  "/workforce":    { title: "Workforce",                  sub: "Crew management & attendance" },
+  "/scheduling":   { title: "Scheduling",                 sub: "Tasks, milestones & Gantt" },
+  "/analytics":    { title: "Analytics",                  sub: "Cost, schedule & performance insights" },
+  "/intelligence": { title: "Construction Intelligence",  sub: "Blueprint CV · 3D Visualization · Materials Forecasting" },
+  "/settings":     { title: "Settings",                   sub: "Account & workspace preferences" },
+  "/generate": { title: "Generate Documents",         sub: "RFI responses, delay notices, change order assessments" },
+  "/safety":   { title: "Safety Intelligence",         sub: "PPE compliance · Hazard detection · Safety scoring" },
+};
 
-export default function Navbar({ appState }: Props) {
-  const { mode, setMode, setUploadedFile, setUploadedFileB, setProjectBuilt, setProjectName } = appState;
+export default function Navbar({ appState }: { appState: AppState }) {
   const navigate = useNavigate();
   const location = useLocation();
-
-  const handleLogoClick = () => {
-    setMode(null);
-    setUploadedFile(null);
-    setUploadedFileB(null);
-    setProjectBuilt(false);
-    setProjectName("");
-    navigate("/");
-  };
-
-  const isConstruction = mode === "construction";
-  const isGeneral = mode === "general";
+  const page = pageTitles[location.pathname] || { title: "Prism", sub: "" };
 
   return (
-    <header className="h-14 bg-white border-b border-border flex items-center justify-between px-6 flex-shrink-0 z-50">
-      {/* Left — Logo */}
-      <button
-        onClick={handleLogoClick}
-        className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
-      >
-        <div className="w-7 h-7 bg-prism-700 rounded-lg flex items-center justify-center">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1L13 4.5V9.5L7 13L1 9.5V4.5L7 1Z" fill="white" fillOpacity="0.3" stroke="white" strokeWidth="1.2"/>
-            <path d="M7 1L13 4.5L7 8L1 4.5L7 1Z" fill="white"/>
+    <header style={{
+      height: 52,
+      background: "#151b24",
+      borderBottom: "1px solid rgba(255,255,255,0.07)",
+      display: "flex",
+      alignItems: "center",
+      padding: "0 24px",
+      gap: 16,
+      flexShrink: 0,
+      position: "relative",
+      zIndex: 10,
+    }}>
+
+      {/* Page title */}
+      <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <span style={{
+          color: "#f0f4f8",
+          fontSize: 14,
+          fontWeight: 700,
+          letterSpacing: "-0.02em",
+          whiteSpace: "nowrap",
+        }}>
+          {page.title}
+        </span>
+        {page.sub && (
+          <span style={{
+            color: "rgba(255,255,255,0.2)",
+            fontSize: 11,
+            fontFamily: "'JetBrains Mono', monospace",
+            fontWeight: 400,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}>
+            / {page.sub}
+          </span>
+        )}
+      </div>
+
+      {/* Right side controls */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+
+        {/* AI Status chip */}
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "4px 10px",
+          background: "rgba(34,211,160,0.08)",
+          border: "1px solid rgba(34,211,160,0.15)",
+          borderRadius: 100,
+        }}>
+          <span style={{
+            width: 5,
+            height: 5,
+            borderRadius: "50%",
+            background: "#22d3a0",
+            boxShadow: "0 0 6px #22d3a0",
+            display: "inline-block",
+            animation: "navDot 2.5s ease-in-out infinite",
+          }} />
+          <span style={{
+            color: "#22d3a0",
+            fontSize: 10,
+            fontFamily: "'JetBrains Mono', monospace",
+            fontWeight: 500,
+            letterSpacing: "0.05em",
+          }}>
+            AI ONLINE
+          </span>
+        </div>
+
+        {/* Bell */}
+        <button
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.07)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "rgba(255,255,255,0.35)",
+            position: "relative",
+            transition: "all 200ms ease",
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.08)";
+            (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.7)";
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)";
+            (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.35)";
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"
+              stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-        </div>
-        <span className="text-base font-semibold text-ink tracking-tight">Prism</span>
-      </button>
+          {/* Notification badge */}
+          <span style={{
+            position: "absolute",
+            top: 7,
+            right: 7,
+            width: 5,
+            height: 5,
+            borderRadius: "50%",
+            background: "#f43f5e",
+            border: "1.5px solid #151b24",
+          }} />
+        </button>
 
-      {/* Center — Mode indicator */}
-      {mode && (
-        <div className="flex items-center gap-1 bg-surface-secondary border border-border rounded-lg p-1">
-          <button
-            onClick={() => {
-              setMode("general");
-              navigate("/general/insights");
-            }}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
-              isGeneral
-                ? "bg-white text-ink shadow-card border border-border"
-                : "text-ink-secondary hover:text-ink"
-            }`}
-          >
-            General Mode
-          </button>
-          <button
-            onClick={() => {
-              setMode("construction");
-              navigate("/construction/setup");
-            }}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
-              isConstruction
-                ? "bg-white text-ink shadow-card border border-border"
-                : "text-ink-secondary hover:text-ink"
-            }`}
-          >
-            Construction Mode
-          </button>
-        </div>
-      )}
+        {/* Divider */}
+        <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)" }} />
 
-      {/* Right — Status + session */}
-      <div className="flex items-center gap-3">
-        {mode && (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-prism-50 border border-prism-200">
-            <div className="live-dot" />
-            <span className="text-xs font-medium text-prism-700">AI Active</span>
+        {/* User section */}
+        {appState.user && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, #00a8f0, #0054a0)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.02em",
+              flexShrink: 0,
+            }}>
+              {appState.user.name.charAt(0).toUpperCase()}
+            </div>
+            <span style={{
+              color: "rgba(255,255,255,0.55)",
+              fontSize: 13,
+              fontWeight: 500,
+              maxWidth: 120,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}>
+              {appState.user.name}
+            </span>
+            <button
+              onClick={() => appState.logout()}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.07)",
+                color: "rgba(255,255,255,0.3)",
+                fontSize: 11,
+                fontFamily: "'JetBrains Mono', monospace",
+                cursor: "pointer",
+                transition: "all 200ms ease",
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = "rgba(244,63,94,0.1)";
+                (e.currentTarget as HTMLButtonElement).style.color = "#f43f5e";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(244,63,94,0.2)";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)";
+                (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.3)";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.07)";
+              }}
+            >
+              logout
+            </button>
           </div>
         )}
-        <div className="flex items-center gap-2">
-          <div className="text-xs text-ink-tertiary font-mono hidden sm:block">
-            {appState.sessionId.slice(0, 8)}
-          </div>
-          <div className="w-7 h-7 rounded-full bg-prism-700 flex items-center justify-center text-white text-xs font-semibold">
-            P
-          </div>
-        </div>
       </div>
+
+      <style>{`
+        @keyframes navDot {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.35; }
+        }
+      `}</style>
     </header>
   );
 }

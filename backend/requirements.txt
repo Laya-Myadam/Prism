@@ -37,3 +37,17 @@ reportlab>=4.1.0
 numpy>=1.26.0
 
 streamlit
+
+google-generativeai
+opencv-python
+pytesseract
+pdf2image
+Pillow
+numpy
+
+# Also install system deps:
+# Windows: download Tesseract from https://github.com/UB-Mannheim/tesseract/wiki
+#           then set in code: pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Linux:   sudo apt install tesseract-ocr poppler-utils
+
+google-cloud-firestore

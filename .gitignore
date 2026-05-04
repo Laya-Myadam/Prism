@@ -1,8 +1,31 @@
+# Backend
 backend/venv/
 backend/.env
 backend/data/
+backend/__pycache__/
+backend/**/__pycache__/
+
+# Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/.firebase/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.sw?
+
+# Secrets / local config
+*.env.local
+.env.local

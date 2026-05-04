@@ -1,344 +1,260 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AppState } from "../../App";
-import {
-  AlertTriangle, CheckCircle, Clock, FileText,
-  TrendingDown, Minus, RefreshCw,
-  Building, Calendar, DollarSign, User,
-  Loader2, Bot, FilePlus, ChevronDown, ChevronUp
-} from "lucide-react";
 import { getDashboard } from "../../api/client";
-import type { Dashboard as DashboardData } from "../../api/client";
 
 interface Props { appState: AppState; }
 
-const SEVERITY_CONFIG = {
-  High: {
-    dot: "severity-dot-high",
-    badge: "badge-red",
-    border: "border-l-4 border-l-red-400 bg-red-50",
+const F = "'Outfit',sans-serif";
+const M = "'JetBrains Mono',monospace";
+const card = { background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12 } as React.CSSProperties;
+
+// ── Demo project — always visible, no upload needed ───────────────────────────
+const DEMO = {
+  name: "Riverside Heights Mixed-Use",
+  value: "$11.4M",
+  owner: "Pinnacle Urban Developers",
+  gc: "Hardrock General Contracting",
+  completion: "December 2025",
+  ld: "$2,000/day",
+  isDemo: true,
+  stats: { total_documents:14, contracts:1, drawings:4, specs:2, daily_reports:5, rfis:12, change_orders:5, inspections:2 },
+  risks: [
+    { severity:"High",   title:"3 RFIs overdue by 14+ days",               description:"RFI-009, RFI-011, RFI-014 have exceeded the 14-day response window. Contractor may claim delay.", source:"RFI" },
+    { severity:"High",   title:"Liquidated damages clause active",           description:"Foundation work is 2 days behind critical path. LD rate of $2,000/day applies.", source:"Contract" },
+    { severity:"Medium", title:"CO-004 pending approval for 8 days",        description:"Change order for waterproofing upgrade worth $34,500 awaiting owner sign-off.", source:"Change Orders" },
+    { severity:"Medium", title:"Structural steel submittal not approved",    description:"Submittal S-014 for rebar schedule returned with comments. Resubmission overdue.", source:"Submittals" },
+    { severity:"Low",    title:"Retention release conditions unclear",       description:"Contract clause 9.3 does not specify practical completion criteria for retention release.", source:"Contract" },
+  ],
+  schedule: {
+    status: "At Risk",
+    summary: "Foundation work is 2 days behind schedule. Critical path affected — recovery plan required by end of week.",
+    critical_activities: ["Foundation Concrete Pour", "Rebar Installation Level 1", "Structural Steel Erection"],
   },
-  Medium: {
-    dot: "severity-dot-med",
-    badge: "badge-amber",
-    border: "border-l-4 border-l-amber-400 bg-amber-50",
-  },
-  Low: {
-    dot: "severity-dot-low",
-    badge: "badge-green",
-    border: "border-l-4 border-l-green-400 bg-green-50",
+  extracted_sections: {
+    "Contract": { project_name:"Riverside Heights Mixed-Use", project_value:"$11.4M", owner:"Pinnacle Urban Developers", liquidated_damages:"$2,000/day", retention:"5%" },
+    "Daily Reports": { work_summary:"Formwork at grid lines A1-A4 completed. Concrete pour scheduled for Thursday.", total_delays_reported:"2", weather_impacts:"Rain delay on March 12 — 4 hours lost" },
+    "RFIs": { total_rfis:"12", open_rfis:"7", common_topics:"Waterproofing, concrete strength, structural connections" },
   },
 };
 
 export default function Dashboard({ appState }: Props) {
-  const { sessionId, projectBuilt, projectName } = appState;
   const navigate = useNavigate();
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedInsights, setExpandedInsights] = useState<Record<string, boolean>>({});
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [activeProject, setActiveProject] = useState<"demo"|"real">("demo");
 
   useEffect(() => {
-    if (!projectBuilt) return;
-    loadDashboard();
-  }, [projectBuilt]);
-
-  const loadDashboard = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getDashboard(sessionId);
-      setDashboard(data);
-      // Auto-expand all insights
-      if (data.project_insights) {
-        const exp: Record<string, boolean> = {};
-        Object.keys(data.project_insights).forEach(k => exp[k] = true);
-        setExpandedInsights(exp);
-      }
-    } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to load dashboard.");
-    } finally {
-      setLoading(false);
+    if (appState.sessionId) {
+      setLoading(true);
+      getDashboard(appState.sessionId)
+        .then(d => {
+          if (d && Object.keys(d).length > 0 && d.facts) {
+            setData(d);
+            if (d?.facts?.project_name) {
+              appState.setProjectName(d.facts.project_name);
+              appState.setProjectBuilt(true);
+              setActiveProject("real"); // auto-switch to real project when available
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
     }
-  };
+  }, [appState.sessionId]);
 
-  if (!projectBuilt) {
-    return (
-      <div className="max-w-4xl mx-auto animate-fade-in">
-        <div className="page-header">
-          <div>
-            <h1 className="page-title">Project Dashboard</h1>
-            <p className="page-sub">Build your project first to see the dashboard.</p>
-          </div>
-        </div>
-        <div className="empty-state mt-16">
-          <div className="empty-state-icon">📊</div>
-          <div className="empty-state-title">No project built yet</div>
-          <div className="empty-state-sub">Go to Project Setup and upload your documents</div>
-          <button onClick={() => navigate("/construction/setup")} className="btn-primary mt-4 text-xs px-4 py-2">
-            Go to Setup
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // ── Active project data — demo or real ───────────────────────────────────
+  const showDemo = activeProject === "demo" || !appState.projectBuilt;
+  const facts   = showDemo ? { project_name:DEMO.name, project_value:DEMO.value, owner:DEMO.owner, general_contractor:DEMO.gc, completion_date:DEMO.completion, liquidated_damages:DEMO.ld } : (data?.facts || {});
+  const stats   = showDemo ? DEMO.stats : data?.stats;
+  const risks   = showDemo ? DEMO.risks : (data?.risks || []);
+  const schedule = showDemo ? DEMO.schedule : data?.schedule_health;
+  const extracted = showDemo ? DEMO.extracted_sections : data?.extracted_sections;
 
-  if (loading) {
-    return (
-      <div className="max-w-4xl mx-auto animate-fade-in flex items-center justify-center h-64">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 size={28} className="animate-spin text-prism-500" />
-          <p className="text-sm text-ink-secondary">Loading project dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+  const metrics = stats ? [
+    { label:"Total Documents", value:String(stats.total_documents), sub:`${stats.contracts} contract${stats.contracts!==1?"s":""}`, accent:"#00a8f0" },
+    { label:"Drawings",        value:String(stats.drawings),        sub:"Indexed",   accent:"#38bfff" },
+    { label:"RFIs",            value:String(stats.rfis),            sub:"Uploaded",  accent:"#f59e0b" },
+    { label:"Daily Reports",   value:String(stats.daily_reports),   sub:"Uploaded",  accent:"#a78bfa" },
+    { label:"Change Orders",   value:String(stats.change_orders),   sub:"Uploaded",  accent:"#f43f5e" },
+    { label:"Specs",           value:String(stats.specs),           sub:"Indexed",   accent:"#22d3a0" },
+  ] : [];
 
-  if (error || !dashboard) {
-    return (
-      <div className="max-w-4xl mx-auto animate-fade-in">
-        <div className="alert-error">
-          <AlertTriangle size={15} />
-          <span>{error || "Dashboard data not available."}</span>
-        </div>
-      </div>
-    );
-  }
-
-  const { facts, stats, risks, schedule_health } = dashboard;
-  const projectInsights: Record<string, string> = (dashboard as any).project_insights || {};
-  const hasInsights = Object.keys(projectInsights).length > 0;
-
-  const scheduleConfig: Record<string, { icon: React.ReactNode; cls: string; label: string }> = {
-    "On Track": { icon: <CheckCircle size={14} />, cls: "alert-success", label: "On Track" },
-    "At Risk":  { icon: <AlertTriangle size={14} />, cls: "alert-warning", label: "At Risk" },
-    "Delayed":  { icon: <TrendingDown size={14} />, cls: "alert-error", label: "Delayed" },
-    "Unknown":  { icon: <Minus size={14} />, cls: "alert-info", label: "Unknown" },
-  };
-  const schedCfg = scheduleConfig[schedule_health.status] || scheduleConfig["Unknown"];
+  const scheduleColor = schedule?.status === "On Track" ? "#22d3a0" : schedule?.status === "Delayed" ? "#f43f5e" : "#f59e0b";
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in">
+    <div style={{ padding:"28px 32px", fontFamily:F, color:"#f0f4f8", maxWidth:1200 }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       {/* Header */}
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{facts.project_name || projectName || "Project Dashboard"}</h1>
-          <p className="page-sub">
-            {[facts.owner, facts.general_contractor, facts.project_location]
-              .filter(Boolean).join(" · ") || "Construction Project Intelligence"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={loadDashboard} className="btn text-xs gap-1.5">
-            <RefreshCw size={12} /> Refresh
-          </button>
-          <button onClick={() => navigate("/construction/ask")} className="btn text-xs gap-1.5">
-            <Bot size={12} /> Ask Project
-          </button>
-          <button onClick={() => navigate("/construction/generate")} className="btn-primary text-xs gap-1.5">
-            <FilePlus size={12} /> Generate Doc
-          </button>
-        </div>
+      <div style={{ marginBottom:20 }}>
+        <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:"-0.025em", marginBottom:4 }}>
+          Good morning, {appState.user?.name?.split(" ")[0] || "there"}
+        </h1>
+        <p style={{ color:"rgba(255,255,255,0.3)", fontSize:12, fontFamily:M }}>
+          {facts.project_name ? `Active: ${facts.project_name}` : "Select a project below"}
+        </p>
       </div>
 
-      {/* Project facts */}
-      <div className="card mb-5">
-        <div className="card-header">
-          <div className="card-title">Project Details</div>
-          {facts.liquidated_damages && (
-            <div className="badge-red">⚠ LD: {facts.liquidated_damages}/day</div>
-          )}
-        </div>
-        <div className="card-body">
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { icon: <DollarSign size={13} />, label: "Contract Value", value: facts.project_value },
-              { icon: <User size={13} />, label: "Owner", value: facts.owner },
-              { icon: <Building size={13} />, label: "General Contractor", value: facts.general_contractor },
-              { icon: <User size={13} />, label: "Architect", value: facts.architect },
-              { icon: <Calendar size={13} />, label: "Start Date", value: facts.start_date },
-              { icon: <Calendar size={13} />, label: "Completion", value: facts.completion_date },
-            ].map((item, i) => (
-              <div key={i} className="flex items-start gap-2.5">
-                <div className="w-6 h-6 rounded-md bg-surface-secondary border border-border
-                                flex items-center justify-center flex-shrink-0 mt-0.5 text-ink-secondary">
-                  {item.icon}
-                </div>
-                <div>
-                  <div className="text-xs text-ink-tertiary uppercase tracking-wide font-medium">{item.label}</div>
-                  <div className="text-sm font-medium text-ink mt-0.5">{item.value || "—"}</div>
-                </div>
-              </div>
-            ))}
+      {/* ── Project selector strip ── */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:24, flexWrap:"wrap" }}>
+        {/* Demo project chip */}
+        <button onClick={()=>setActiveProject("demo")} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 16px", borderRadius:10, border:`1px solid ${activeProject==="demo"?"rgba(0,168,240,0.4)":"rgba(255,255,255,0.08)"}`, background:activeProject==="demo"?"rgba(0,168,240,0.1)":"rgba(255,255,255,0.03)", cursor:"pointer", fontFamily:F, transition:"all 0.15s", textAlign:"left" }}>
+          <div style={{ width:8, height:8, borderRadius:"50%", background:"#f59e0b", boxShadow:activeProject==="demo"?"0 0 6px #f59e0b":"none", flexShrink:0 }}/>
+          <div>
+            <div style={{ fontSize:12, fontWeight:600, color:activeProject==="demo"?"#38bfff":"rgba(255,255,255,0.65)" }}>Riverside Heights Mixed-Use</div>
+            <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)", fontFamily:M }}>DEMO · At Risk · 61%</div>
           </div>
-        </div>
+          <span style={{ fontSize:9, padding:"2px 6px", borderRadius:4, background:"rgba(245,158,11,0.15)", color:"#f59e0b", fontFamily:M, border:"1px solid rgba(245,158,11,0.2)", marginLeft:4 }}>DEMO</span>
+        </button>
+
+        {/* Real project chip — only when built */}
+        {appState.projectBuilt && data?.facts?.project_name && (
+          <button onClick={()=>setActiveProject("real")} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 16px", borderRadius:10, border:`1px solid ${activeProject==="real"?"rgba(0,168,240,0.4)":"rgba(255,255,255,0.08)"}`, background:activeProject==="real"?"rgba(0,168,240,0.1)":"rgba(255,255,255,0.03)", cursor:"pointer", fontFamily:F, transition:"all 0.15s", textAlign:"left" }}>
+            <div style={{ width:8, height:8, borderRadius:"50%", background:"#22d3a0", boxShadow:activeProject==="real"?"0 0 6px #22d3a0":"none", flexShrink:0 }}/>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:activeProject==="real"?"#38bfff":"rgba(255,255,255,0.65)" }}>{data.facts.project_name}</div>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)", fontFamily:M }}>YOUR PROJECT · {data.stats?.total_documents || 0} docs</div>
+            </div>
+            <span style={{ fontSize:9, padding:"2px 6px", borderRadius:4, background:"rgba(34,211,160,0.15)", color:"#22d3a0", fontFamily:M, border:"1px solid rgba(34,211,160,0.2)", marginLeft:4 }}>LIVE</span>
+          </button>
+        )}
+
+        {/* Add new project */}
+        <button onClick={()=>navigate("/documents")} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 16px", borderRadius:10, border:"1px dashed rgba(255,255,255,0.15)", background:"transparent", cursor:"pointer", fontFamily:F, color:"rgba(255,255,255,0.4)", fontSize:12, transition:"all 0.15s" }}
+          onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor="rgba(0,168,240,0.3)";(e.currentTarget as HTMLButtonElement).style.color="#38bfff";}}
+          onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor="rgba(255,255,255,0.15)";(e.currentTarget as HTMLButtonElement).style.color="rgba(255,255,255,0.4)";}}>
+          <span style={{ fontSize:16, lineHeight:1 }}>+</span> Upload New Project
+        </button>
+
+        {loading && <div style={{ width:14, height:14, border:"2px solid rgba(0,168,240,0.3)", borderTopColor:"#00a8f0", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-6 gap-3 mb-5">
-        {[
-          { label: "Total Docs",     value: stats.total_documents },
-          { label: "Drawings",       value: stats.drawings },
-          { label: "Specs",          value: stats.specs },
-          { label: "Daily Reports",  value: stats.daily_reports },
-          { label: "RFIs",           value: stats.rfis },
-          { label: "Change Orders",  value: stats.change_orders },
-        ].map((m, i) => (
-          <div key={i} className="metric-card text-center p-3">
-            <div className="metric-label text-center">{m.label}</div>
-            <div className="metric-value text-center text-2xl">{m.value}</div>
+      {/* Demo banner */}
+      {showDemo && (
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 16px", borderRadius:8, background:"rgba(245,158,11,0.07)", border:"1px solid rgba(245,158,11,0.2)", marginBottom:20 }}>
+          <span style={{ fontSize:12, color:"rgba(245,158,11,0.9)" }}>📋 You're viewing a demo project. <span style={{ color:"rgba(255,255,255,0.5)" }}>Upload your own documents to see real AI insights.</span></span>
+          <button onClick={()=>navigate("/documents")} style={{ fontSize:11, color:"#f59e0b", background:"rgba(245,158,11,0.1)", border:"1px solid rgba(245,158,11,0.25)", borderRadius:6, padding:"4px 12px", cursor:"pointer", fontFamily:F, fontWeight:600 }}>Upload Docs →</button>
+        </div>
+      )}
+
+      {/* Metrics */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:10, marginBottom:24 }}>
+        {metrics.map(m=>(
+          <div key={m.label} style={{ ...card, padding:"16px" }}>
+            <div style={{ fontSize:22, fontWeight:700, color:m.accent, letterSpacing:"-0.03em", lineHeight:1 }}>{m.value}</div>
+            <div style={{ fontSize:12, fontWeight:600, color:"#f0f4f8", marginTop:6 }}>{m.label}</div>
+            <div style={{ fontSize:10, color:"rgba(255,255,255,0.28)", fontFamily:M, marginTop:3 }}>{m.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Schedule + Risks */}
-      <div className="grid grid-cols-2 gap-5 mb-5">
-
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <Clock size={14} className="text-ink-secondary" />
-              Schedule Health
-            </div>
+      {/* Project facts strip */}
+      <div style={{ ...card, padding:"14px 20px", marginBottom:16, display:"flex", flexWrap:"wrap", gap:24 }}>
+        {[
+          ["Project", facts.project_name],
+          ["Value", facts.project_value],
+          ["Owner", facts.owner],
+          ["GC", facts.general_contractor],
+          ["Completion", facts.completion_date],
+          ["LD Rate", facts.liquidated_damages],
+        ].filter(([,v])=>v).map(([l,v])=>(
+          <div key={l as string}>
+            <div style={{ fontSize:9, color:"rgba(255,255,255,0.3)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:3 }}>{l}</div>
+            <div style={{ fontSize:13, fontWeight:500, color:"#f0f4f8" }}>{v}</div>
           </div>
-          <div className="card-body">
-            <div className={`${schedCfg.cls} mb-4`}>
-              {schedCfg.icon}
-              <div>
-                <div className="font-semibold">{schedCfg.label}</div>
-                {schedule_health.days_ahead_behind !== "Unknown" && (
-                  <div className="text-xs mt-0.5 opacity-80">{schedule_health.days_ahead_behind}</div>
-                )}
-              </div>
-            </div>
-            <p className="text-sm text-ink leading-relaxed mb-4">{schedule_health.summary}</p>
-            {schedule_health.critical_activities?.length > 0 && (
-              <div>
-                <div className="section-label">Critical Activities</div>
-                <div className="flex flex-col gap-1.5">
-                  {schedule_health.critical_activities.map((a: string, i: number) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                      <span className="text-xs text-ink-secondary">{a}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title flex items-center gap-2">
-              <AlertTriangle size={14} className="text-ink-secondary" />
-              Risk Summary
-            </div>
-            <div className="flex items-center gap-1.5">
-              {risks.filter((r: any) => r.severity === "High").length > 0 && (
-                <span className="badge-red">{risks.filter((r: any) => r.severity === "High").length} High</span>
-              )}
-              {risks.filter((r: any) => r.severity === "Medium").length > 0 && (
-                <span className="badge-amber">{risks.filter((r: any) => r.severity === "Medium").length} Med</span>
-              )}
-            </div>
-          </div>
-          <div className="card-body">
-            {risks.length === 0 ? (
-              <div className="empty-state py-8">
-                <CheckCircle size={24} className="text-green-400 mb-2" />
-                <div className="empty-state-title">No significant risks detected</div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {risks.slice(0, 4).map((risk: any, i: number) => {
-                  const cfg = SEVERITY_CONFIG[risk.severity as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.Low;
-                  return (
-                    <div key={i} className={`p-3 rounded-lg border ${cfg.border}`}>
-                      <div className="flex items-start gap-2">
-                        <div className={`${cfg.dot} mt-1`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-semibold text-ink">{risk.title}</div>
-                          <div className="text-xs text-ink-secondary mt-0.5 leading-relaxed">{risk.description}</div>
-                          <div className="text-xs text-ink-tertiary font-mono mt-1">{risk.source}</div>
-                        </div>
-                        <span className={`badge ${cfg.badge} flex-shrink-0`}>{risk.severity}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-                {risks.length > 4 && (
-                  <div className="text-xs text-ink-tertiary text-center pt-1">
-                    +{risks.length - 4} more risks detected
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* ── KEY INSIGHTS — plain English summary ── */}
-      {hasInsights && (
-        <div className="mb-5 animate-slide-up">
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title flex items-center gap-2">
-                <FileText size={14} className="text-ink-secondary" />
-                Project Intelligence — Plain English Summary
-              </div>
-              <div className="badge-green">{Object.keys(projectInsights).length} sections</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 320px", gap:16 }}>
+        {/* Left */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+          {/* Risk Intelligence */}
+          <div style={{ ...card, padding:20 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+              <div style={{ fontSize:13, fontWeight:600 }}>Risk Intelligence</div>
+              {risks.filter((r:any)=>r.severity==="High").length > 0 && (
+                <span style={{ background:"rgba(244,63,94,0.1)", color:"#f43f5e", fontSize:10, padding:"2px 8px", borderRadius:4, fontFamily:M, border:"1px solid rgba(244,63,94,0.2)" }}>
+                  {risks.filter((r:any)=>r.severity==="High").length} HIGH
+                </span>
+              )}
             </div>
-            <div className="card-body flex flex-col gap-2">
-              {Object.entries(projectInsights).map(([section, content]) => (
-                <div key={section} className="border border-border rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => setExpandedInsights(prev => ({ ...prev, [section]: !prev[section] }))}
-                    className="w-full flex items-center justify-between px-4 py-3
-                               hover:bg-surface-secondary transition-colors duration-150"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-prism-500 flex-shrink-0" />
-                      <span className="text-sm font-semibold text-ink text-left">{section}</span>
-                    </div>
-                    {expandedInsights[section]
-                      ? <ChevronUp size={14} className="text-ink-tertiary flex-shrink-0" />
-                      : <ChevronDown size={14} className="text-ink-tertiary flex-shrink-0" />
-                    }
-                  </button>
-                  {expandedInsights[section] && (
-                    <div className="px-4 pb-4 pt-1 border-t border-border animate-fade-in bg-surface-secondary">
-                      <p className="text-sm text-ink leading-relaxed">{content}</p>
-                    </div>
-                  )}
+            {risks.map((r:any,i:number)=>(
+              <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:12, padding:"10px 0", borderBottom:i<risks.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
+                <div style={{ width:6, height:6, borderRadius:"50%", flexShrink:0, marginTop:4, background:r.severity==="High"?"#f43f5e":r.severity==="Medium"?"#f59e0b":"#22d3a0", boxShadow:r.severity==="High"?"0 0 6px #f43f5e":"none" }}/>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,0.8)", fontWeight:500 }}>{r.title}</div>
+                  {r.description && <div style={{ fontSize:11, color:"rgba(255,255,255,0.35)", marginTop:2, lineHeight:1.5 }}>{r.description}</div>}
                 </div>
+                <span style={{ fontSize:9, padding:"2px 7px", borderRadius:4, fontFamily:M, background:"rgba(255,255,255,0.05)", color:"rgba(255,255,255,0.3)", border:"1px solid rgba(255,255,255,0.07)", flexShrink:0 }}>{r.source||r.severity}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Quick Actions */}
+          <div style={{ ...card, padding:20 }}>
+            <div style={{ fontSize:13, fontWeight:600, marginBottom:14 }}>Quick Actions</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              {[
+                { label:"Ask Project",       sub:"Q&A across all docs",  path:"/documents",    accent:"#00a8f0" },
+                { label:"Analyze Blueprint", sub:"CV + dimensions",      path:"/intelligence", accent:"#38bfff" },
+                { label:"Add Workers",       sub:"Update crew roster",   path:"/workforce",    accent:"#a78bfa" },
+                { label:"View Schedule",     sub:"Tasks & milestones",   path:"/scheduling",   accent:"#f59e0b" },
+              ].map(a=>(
+                <button key={a.label} onClick={()=>navigate(a.path)} style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:8, padding:"12px 14px", cursor:"pointer", textAlign:"left", transition:"all 0.15s", fontFamily:F }}
+                  onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor=a.accent+"40";(e.currentTarget as HTMLButtonElement).style.background="rgba(255,255,255,0.05)";}}
+                  onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor="rgba(255,255,255,0.07)";(e.currentTarget as HTMLButtonElement).style.background="rgba(255,255,255,0.03)";}}>
+                  <div style={{ fontSize:13, fontWeight:600, color:a.accent }}>{a.label}</div>
+                  <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", marginTop:3 }}>{a.sub}</div>
+                </button>
               ))}
             </div>
           </div>
         </div>
-      )}
 
-      {/* Quick actions */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Quick Actions</div>
-        </div>
-        <div className="card-body grid grid-cols-3 gap-3">
-          {[
-            { icon: <Bot size={16} className="text-prism-600" />, title: "Ask Your Project", desc: "Query all documents at once", action: () => navigate("/construction/ask"), color: "hover:border-prism-300 hover:bg-prism-50" },
-            { icon: <FilePlus size={16} className="text-amber-600" />, title: "Generate RFI Response", desc: "Create formatted RFI documents", action: () => navigate("/construction/generate"), color: "hover:border-amber-300 hover:bg-amber-50" },
-            { icon: <FileText size={16} className="text-blue-600" />, title: "Generate Delay Notice", desc: "Draft a formal delay notice letter", action: () => navigate("/construction/generate"), color: "hover:border-blue-300 hover:bg-blue-50" },
-          ].map((item, i) => (
-            <button key={i} onClick={item.action}
-              className={`text-left p-4 rounded-xl border border-border bg-white transition-all duration-150 ${item.color}`}>
-              <div className="w-8 h-8 rounded-lg bg-surface-secondary border border-border flex items-center justify-center mb-3">
-                {item.icon}
-              </div>
-              <div className="text-xs font-semibold text-ink mb-1">{item.title}</div>
-              <div className="text-xs text-ink-tertiary">{item.desc}</div>
-            </button>
-          ))}
+        {/* Right */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+          {/* Schedule health */}
+          <div style={{ ...card, padding:20, borderColor:`${scheduleColor}30` }}>
+            <div style={{ fontSize:13, fontWeight:600, marginBottom:14 }}>Schedule Health</div>
+            {schedule ? (
+              <>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                  <div style={{ width:6, height:6, borderRadius:"50%", background:scheduleColor, boxShadow:`0 0 6px ${scheduleColor}` }}/>
+                  <span style={{ color:scheduleColor, fontSize:12, fontWeight:700, fontFamily:M }}>{(schedule.status||"").toUpperCase()}</span>
+                </div>
+                <p style={{ fontSize:12, color:"rgba(255,255,255,0.4)", lineHeight:1.6, marginBottom:14 }}>{schedule.summary}</p>
+                {schedule.critical_activities?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,0.25)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Critical Path</div>
+                    {schedule.critical_activities.slice(0,3).map((a:string,i:number)=>(
+                      <div key={i} style={{ fontSize:11, color:"rgba(255,255,255,0.5)", padding:"4px 0", borderBottom:"1px solid rgba(255,255,255,0.04)" }}>→ {a}</div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : null}
+          </div>
+
+          {/* Document Insights */}
+          {extracted && Object.keys(extracted).length > 0 && (
+            <div style={{ ...card, padding:20, flex:1, overflowY:"auto", maxHeight:320 }}>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:14 }}>Document Insights</div>
+              {Object.entries(extracted).map(([type, section]: [string, any])=>(
+                <div key={type} style={{ marginBottom:14, paddingBottom:14, borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
+                  <div style={{ fontSize:10, color:"rgba(0,168,240,0.7)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>{type}</div>
+                  {Object.entries(section).filter(([,v])=>v&&typeof v==="string").slice(0,3).map(([k,v])=>(
+                    <div key={k} style={{ display:"flex", gap:8, marginBottom:4 }}>
+                      <span style={{ fontSize:11, color:"rgba(255,255,255,0.3)", minWidth:100, flexShrink:0, textTransform:"capitalize" }}>{k.replace(/_/g," ")}</span>
+                      <span style={{ fontSize:11, color:"rgba(255,255,255,0.65)", lineHeight:1.4 }}>{v as string}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
