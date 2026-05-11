@@ -11,7 +11,10 @@ const pageTitles: Record<string, { title: string; sub: string }> = {
   "/intelligence": { title: "Construction Intelligence",  sub: "Blueprint CV · 3D Visualization · Materials Forecasting" },
   "/settings":     { title: "Settings",                   sub: "Account & workspace preferences" },
   "/generate": { title: "Generate Documents",         sub: "RFI responses, delay notices, change order assessments" },
-  "/safety":   { title: "Safety Intelligence",         sub: "PPE compliance · Hazard detection · Safety scoring" },
+  "/safety":        { title: "Safety Intelligence",   sub: "PPE compliance · Hazard detection · Safety scoring" },
+  "/rfi-register":  { title: "RFI Register",          sub: "Track, respond & close all project RFIs" },
+  "/change-orders": { title: "Change Order Register", sub: "Budget exposure · AI assessment · Approval workflow" },
+  "/obligations":   { title: "Contract Obligations",  sub: "Deadlines · Notices · Milestones — never miss a date" },
 };
 
 export default function Navbar({ appState }: { appState: AppState }) {

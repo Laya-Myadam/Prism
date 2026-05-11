@@ -15,6 +15,9 @@ import Intelligence from "./pages/construction/Intelligence";
 import Settings from "./pages/construction/Settings";
 import GenerateDocs from "./pages/construction/GenerateDocs";
 import Safety from "./pages/construction/Safety";
+import RFIRegister from "./pages/construction/RFIRegister";
+import ChangeOrders from "./pages/construction/ChangeOrders";
+import Obligations from "./pages/construction/Obligations";
 
 export type AppUser = {
   uid: string;
@@ -73,6 +76,9 @@ function AppShell({ appState }: { appState: AppState }) {
             <Route path="/safety" element={<Safety appState={appState} />} />
             <Route path="/settings" element={<Settings appState={appState} />} />
             <Route path="/generate" element={<GenerateDocs appState={appState} />} />
+            <Route path="/rfi-register" element={<RFIRegister appState={appState} />} />
+            <Route path="/change-orders" element={<ChangeOrders appState={appState} />} />
+            <Route path="/obligations" element={<Obligations appState={appState} />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>

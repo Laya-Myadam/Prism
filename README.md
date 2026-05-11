@@ -39,6 +39,9 @@
 | **Spec Compliance** | Check submittals against spec requirements with compliance scoring |
 | **Blueprint CV** | Computer vision analysis of drawings using Gemini Vision AI |
 | **Safety AI** | PPE compliance detection, hazard identification, site safety scoring |
+| **RFI Register** | Full RFI log with status tracking, AI-generated responses, and response time analytics |
+| **Change Order Register** | Contract value waterfall, AI clause assessment, approve/reject workflow, budget exposure |
+| **Contract Obligations** | Auto-extract every deadline, notice, and milestone from the contract — never miss a date |
 
 ### Authentication
 Demo mode with 4 role-based profiles — no sign-up required:
@@ -104,6 +107,9 @@ prism/
     │           ├── Workforce.tsx
     │           ├── Intelligence.tsx
     │           ├── Safety.tsx
+    │           ├── RFIRegister.tsx
+    │           ├── ChangeOrders.tsx
+    │           ├── Obligations.tsx
     │           └── Settings.tsx
     ├── firebase.json            # Firebase Hosting config
     └── .env.production          # VITE_API_URL → Cloud Run
@@ -205,6 +211,17 @@ gcloud run deploy prism-backend `
 | POST | `/construction/spec-compliance` | Check submittal against spec |
 | POST | `/construction/safety-analyze` | PPE + hazard analysis from site photo |
 | POST | `/construction/analyze-blueprint` | Blueprint/drawing CV analysis |
+| POST | `/construction/rfi-register/create` | Create a new RFI |
+| GET  | `/construction/rfi-register/{id}` | List all RFIs for session |
+| POST | `/construction/rfi-register/respond` | AI-generate RFI response |
+| PUT  | `/construction/rfi-register/update` | Update RFI status / response |
+| POST | `/construction/co-register/create` | Create a new change order |
+| GET  | `/construction/co-register/{id}` | List all COs for session |
+| POST | `/construction/co-register/assess` | AI assessment of change order |
+| PUT  | `/construction/co-register/update` | Approve / reject / update CO |
+| POST | `/construction/obligations/extract` | Extract obligations from contract |
+| GET  | `/construction/obligations/{id}` | List all obligations for session |
+| PUT  | `/construction/obligations/complete` | Toggle obligation complete |
 
 ---
 

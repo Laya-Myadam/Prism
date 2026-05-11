@@ -47,14 +47,22 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 sessions: dict = {}
 
-from google.cloud import firestore
-import pickle
+try:
+    from google.cloud import firestore as _firestore
+    _FIRESTORE_AVAILABLE = True
+except ImportError:
+    _FIRESTORE_AVAILABLE = False
 
 _db = None
 def get_db():
     global _db
+    if not _FIRESTORE_AVAILABLE:
+        return None
     if _db is None:
-        _db = firestore.Client()
+        try:
+            _db = _firestore.Client()
+        except Exception:
+            return None
     return _db
 
 DEFAULT_SESSION = {
@@ -65,6 +73,7 @@ DEFAULT_SESSION = {
     "rfi_log": [], "rfi_counter": 1,
     "classified_docs": [], "grouped_docs": {},
     "dashboard": {}, "generated_docs": [],
+    "rfi_register": [], "co_register": [], "obligation_register": [],
 }
 
 def get_session(session_id: str) -> dict:
@@ -76,7 +85,10 @@ def get_session(session_id: str) -> dict:
         get_session._cache[session_id] = dict(DEFAULT_SESSION)
         # Try loading persisted data from Firestore
         try:
-            doc = get_db().collection("sessions").document(session_id).get()
+            db = get_db()
+            if db is None:
+                raise Exception("Firestore not available")
+            doc = db.collection("sessions").document(session_id).get()
             if doc.exists:
                 saved = doc.to_dict()
                 for k in ["chat_history","dashboard","classified_docs","generated_docs","rfi_log","rfi_counter","filename","domain","project_files"]:
@@ -96,15 +108,18 @@ def save_session(session_id: str):
         serializable = {}
         for k in ["chat_history","dashboard","classified_docs","generated_docs",
                   "rfi_log","rfi_counter","filename","domain","project_files",
-                  "filename_b","insights"]:
+                  "filename_b","insights","rfi_register","co_register","obligation_register"]:
             v = session.get(k)
             if v is not None and v != {} and v != []:
                 serializable[k] = v
         if not serializable:
             print(f"[save_session] Nothing to save for {session_id}")
             return
+        db = get_db()
+        if db is None:
+            return
         print(f"[save_session] Saving keys: {list(serializable.keys())}")
-        get_db().collection("sessions").document(session_id).set(serializable)
+        db.collection("sessions").document(session_id).set(serializable)
         print(f"[save_session] Saved successfully")
     except Exception as e:
         print(f"[Firestore save failed]: {e}")
@@ -1255,3 +1270,272 @@ Return ONLY valid JSON:
             {"title":"Steel Submittal Window","type":"Deadline","severity":"Medium","message":"Structural steel submittal due in 5 days for 6-week lead time to meet MEP start","action_required":"Submit shop drawings by end of week","time_sensitive":False},
         ]
         return {"alerts": default, "count": len(default)}
+
+
+# ── RFI Register ───────────────────────────────────────────────────────────────
+
+class RFICreate(BaseModel):
+    session_id: str
+    subject: str
+    description: str
+    assigned_to: str = "Architect"
+    submitted_by: str = "GC"
+    date_submitted: str = ""
+    date_due: str = ""
+    priority: str = "Medium"
+
+class RFIUpdate(BaseModel):
+    session_id: str
+    id: str
+    status: Optional[str] = None
+    response: Optional[str] = None
+    date_responded: Optional[str] = None
+
+class RFIRespond(BaseModel):
+    session_id: str
+    subject: str
+    description: str
+
+@app.post("/construction/rfi-register/create")
+async def rfi_register_create(body: RFICreate):
+    session = get_session(body.session_id)
+    reg = session.setdefault("rfi_register", [])
+    rfi = {
+        "id": f"RFI-{len(reg)+1:03d}",
+        "subject": body.subject,
+        "description": body.description,
+        "assigned_to": body.assigned_to,
+        "submitted_by": body.submitted_by,
+        "date_submitted": body.date_submitted,
+        "date_due": body.date_due,
+        "priority": body.priority,
+        "status": "Open",
+        "response": None,
+        "date_responded": None,
+    }
+    reg.append(rfi)
+    save_session(body.session_id)
+    return rfi
+
+@app.get("/construction/rfi-register/{session_id}")
+async def rfi_register_list(session_id: str):
+    return get_session(session_id).get("rfi_register", [])
+
+@app.post("/construction/rfi-register/respond")
+async def rfi_register_respond(body: RFIRespond):
+    session = get_session(body.session_id)
+    context = ""
+    if session.get("project_vectorstore"):
+        try:
+            docs = session["project_vectorstore"].similarity_search(body.subject, k=4)
+            context = "\n".join([d.page_content for d in docs])[:2000]
+        except Exception:
+            pass
+    try:
+        from groq import Groq as GroqClient
+        gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+        prompt = f"""You are a senior construction project manager drafting a formal RFI response.
+
+RFI Subject: {body.subject}
+RFI Description: {body.description}
+Project Documents Context: {context or 'Not available'}
+
+Write a concise, professional RFI response that directly answers the question, cites relevant drawing/spec references, and states any cost or schedule impact. Keep it under 200 words."""
+        r = gc.chat.completions.create(
+            model=os.getenv("GROQ_MODEL","llama-3.1-8b-instant"),
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.2, max_tokens=400,
+        )
+        return {"response": r.choices[0].message.content.strip()}
+    except Exception:
+        return {"response": f"Per the contract documents, {body.subject} shall be executed in accordance with the applicable specification sections and drawing details. No cost or schedule impact is anticipated. Please confirm receipt and proceed accordingly. Contact the design team if further clarification is required."}
+
+@app.put("/construction/rfi-register/update")
+async def rfi_register_update(body: RFIUpdate):
+    session = get_session(body.session_id)
+    for rfi in session.get("rfi_register", []):
+        if rfi["id"] == body.id:
+            if body.status is not None: rfi["status"] = body.status
+            if body.response is not None: rfi["response"] = body.response
+            if body.date_responded is not None: rfi["date_responded"] = body.date_responded
+            save_session(body.session_id)
+            return rfi
+    raise HTTPException(404, "RFI not found")
+
+
+# ── Change Order Register ──────────────────────────────────────────────────────
+
+class COCreate(BaseModel):
+    session_id: str
+    title: str
+    description: str
+    submitted_by: str = "GC"
+    date_submitted: str = ""
+    cost_impact: float = 0.0
+    schedule_impact: int = 0
+    category: str = "Extra Work"
+
+class COUpdate(BaseModel):
+    session_id: str
+    id: str
+    status: Optional[str] = None
+    ai_assessment: Optional[dict] = None
+
+class COAssess(BaseModel):
+    session_id: str
+    title: str
+    description: str
+    cost_impact: float = 0.0
+
+@app.post("/construction/co-register/create")
+async def co_register_create(body: COCreate):
+    session = get_session(body.session_id)
+    reg = session.setdefault("co_register", [])
+    co = {
+        "id": f"CO-{len(reg)+1:03d}",
+        "title": body.title,
+        "description": body.description,
+        "submitted_by": body.submitted_by,
+        "date_submitted": body.date_submitted,
+        "cost_impact": body.cost_impact,
+        "schedule_impact": body.schedule_impact,
+        "category": body.category,
+        "status": "Pending",
+        "ai_assessment": None,
+    }
+    reg.append(co)
+    save_session(body.session_id)
+    return co
+
+@app.get("/construction/co-register/{session_id}")
+async def co_register_list(session_id: str):
+    return get_session(session_id).get("co_register", [])
+
+@app.post("/construction/co-register/assess")
+async def co_register_assess(body: COAssess):
+    try:
+        from groq import Groq as GroqClient
+        gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+        prompt = f"""You are a construction claims specialist assessing a change order.
+
+CO Title: {body.title}
+Description: {body.description}
+Claimed Cost: ${body.cost_impact:,.0f}
+
+Return ONLY valid JSON with these exact keys:
+{{
+  "in_scope": "Yes or No or Disputed",
+  "cost_reasonable": "Yes or No or Review Required",
+  "risk_level": "Low or Medium or High",
+  "recommendation": "Approve or Reject or Negotiate",
+  "key_points": ["point1","point2","point3"],
+  "negotiation_target": <number or null>
+}}"""
+        r = gc.chat.completions.create(
+            model=os.getenv("GROQ_MODEL","llama-3.1-8b-instant"),
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.2, max_tokens=400,
+        )
+        raw = re.sub(r"^```json\s*|^```\s*|```$","",r.choices[0].message.content.strip(),flags=re.MULTILINE).strip()
+        return json.loads(raw[raw.find("{"):raw.rfind("}")+1])
+    except Exception:
+        return {
+            "in_scope": "Disputed",
+            "cost_reasonable": "Review Required",
+            "risk_level": "Medium",
+            "recommendation": "Negotiate",
+            "key_points": ["Verify contractual entitlement before approving","Request backup documentation for all costs","Assess schedule impact independently"],
+            "negotiation_target": round(body.cost_impact * 0.85, 2) if body.cost_impact else None
+        }
+
+@app.put("/construction/co-register/update")
+async def co_register_update(body: COUpdate):
+    session = get_session(body.session_id)
+    for co in session.get("co_register", []):
+        if co["id"] == body.id:
+            if body.status is not None: co["status"] = body.status
+            if body.ai_assessment is not None: co["ai_assessment"] = body.ai_assessment
+            save_session(body.session_id)
+            return co
+    raise HTTPException(404, "CO not found")
+
+
+# ── Contract Obligations Tracker ───────────────────────────────────────────────
+
+class ObligationExtract(BaseModel):
+    session_id: str
+
+class ObligationComplete(BaseModel):
+    session_id: str
+    id: str
+
+DEMO_OBLIGATIONS = [
+    {"id":"OBL-001","title":"Insurance Certificates","description":"Provide current COI with required coverage limits per contract","category":"Insurance","priority":"Critical","clause":"§11.1","days_from_now":-3,"status":"Overdue","completed":False},
+    {"id":"OBL-002","title":"Notice of Delay","description":"Provide written notice within 14 days of any delay event occurrence","category":"Notice","priority":"Critical","clause":"§8.3.2","days_from_now":4,"status":"Due Soon","completed":False},
+    {"id":"OBL-003","title":"Monthly Progress Report","description":"Submit progress report with schedule update by the 5th of each month","category":"Reporting","priority":"High","clause":"§3.10","days_from_now":7,"status":"Due Soon","completed":False},
+    {"id":"OBL-004","title":"Submittal Register","description":"Submit complete submittal register for engineer approval","category":"Submission","priority":"High","clause":"§3.10.2","days_from_now":14,"status":"Upcoming","completed":False},
+    {"id":"OBL-005","title":"Payment Application","description":"Monthly payment application due on the 25th of each month","category":"Payment","priority":"High","clause":"§9.3","days_from_now":16,"status":"Upcoming","completed":False},
+    {"id":"OBL-006","title":"Concrete Mix Design Submittal","description":"Submit mix design with 3rd party test results prior to any placement","category":"Submission","priority":"Critical","clause":"§03300","days_from_now":21,"status":"Upcoming","completed":False},
+    {"id":"OBL-007","title":"Structural Steel Shop Drawings","description":"Submit shop drawings for all structural steel connections for approval","category":"Submission","priority":"High","clause":"§05100","days_from_now":28,"status":"Upcoming","completed":False},
+    {"id":"OBL-008","title":"Subcontractor List","description":"Provide list of all subcontractors and suppliers for owner approval","category":"Submission","priority":"Medium","clause":"§5.2.1","days_from_now":35,"status":"Upcoming","completed":False},
+    {"id":"OBL-009","title":"Substantial Completion","description":"Target date for substantial completion as defined in the contract","category":"Milestone","priority":"Critical","clause":"§3.3.2","days_from_now":180,"status":"Upcoming","completed":False},
+    {"id":"OBL-010","title":"Final Lien Waivers","description":"Collect final unconditional lien waivers from all subs and suppliers","category":"Payment","priority":"High","clause":"§9.10","days_from_now":210,"status":"Upcoming","completed":False},
+]
+
+@app.post("/construction/obligations/extract")
+async def obligations_extract(body: ObligationExtract):
+    session = get_session(body.session_id)
+    if session.get("obligation_register"):
+        return session["obligation_register"]
+    context = ""
+    if session.get("project_vectorstore"):
+        try:
+            docs = session["project_vectorstore"].similarity_search("notice deadline submission obligation requirement date milestone payment", k=8)
+            context = "\n".join([d.page_content for d in docs])[:3000]
+        except Exception:
+            pass
+    try:
+        from groq import Groq as GroqClient
+        gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+        prompt = f"""You are a construction contract specialist. Extract all contractual obligations, deadlines, notice requirements, and milestones from this contract text.
+
+Contract Text: {context}
+
+Return a JSON array of 8-12 obligations. Each must have:
+{{"id":"OBL-NNN","title":"short name","description":"what must be done","category":"Notice|Submission|Payment|Milestone|Insurance|Reporting","priority":"Critical|High|Medium","clause":"clause ref","days_from_now":<integer>,"status":"Overdue|Due Soon|Upcoming","completed":false}}
+
+days_from_now must be realistic integers (negative=overdue). Respond ONLY with the JSON array."""
+        r = gc.chat.completions.create(
+            model=os.getenv("GROQ_MODEL","llama-3.1-8b-instant"),
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.2, max_tokens=1500,
+        )
+        raw = re.sub(r"^```json\s*|^```\s*|```$","",r.choices[0].message.content.strip(),flags=re.MULTILINE).strip()
+        obligations = json.loads(raw[raw.find("["):raw.rfind("]")+1])
+        for i, o in enumerate(obligations):
+            o.setdefault("id", f"OBL-{i+1:03d}")
+            o.setdefault("completed", False)
+        session["obligation_register"] = obligations
+        save_session(body.session_id)
+        return obligations
+    except Exception:
+        import copy
+        demo = copy.deepcopy(DEMO_OBLIGATIONS)
+        session["obligation_register"] = demo
+        save_session(body.session_id)
+        return demo
+
+@app.get("/construction/obligations/{session_id}")
+async def obligations_list(session_id: str):
+    session = get_session(session_id)
+    return session.get("obligation_register", [])
+
+@app.put("/construction/obligations/complete")
+async def obligations_complete(body: ObligationComplete):
+    session = get_session(body.session_id)
+    for obl in session.get("obligation_register", []):
+        if obl["id"] == body.id:
+            obl["completed"] = not obl["completed"]
+            save_session(body.session_id)
+            return obl
+    raise HTTPException(404, "Obligation not found")
