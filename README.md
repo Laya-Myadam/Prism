@@ -1,119 +1,135 @@
-# PRISM — Gen AI Construction Intelligence Platform
+<div align="center">
 
-> Upload your contracts, blueprints, RFIs, and daily reports. Get instant AI-powered insights, risk flags, and ready-to-send documents.
+# ◈ PRISM
 
-**Live Demo:** https://project-11d70901-66cf-42-d3a19.web.app  
-**Backend API:** https://prism-backend-819128954762.us-central1.run.app
+### AI-Native Construction Intelligence Platform
 
-<img width="1911" height="971" alt="Screenshot 2026-04-15 132724" src="https://github.com/user-attachments/assets/af75d5da-acb5-4aa1-8a3e-73b2ae6ad46a" />
-<img width="1887" height="964" alt="Screenshot 2026-04-15 132733" src="https://github.com/user-attachments/assets/838b0c5c-8fe0-4ece-9386-39424963f9e0" />
-<img width="1915" height="979" alt="Screenshot 2026-04-15 132740" src="https://github.com/user-attachments/assets/8988b67e-4c71-4a40-b203-347f5ef1d035" />
-<img width="1908" height="971" alt="Screenshot 2026-04-15 132749" src="https://github.com/user-attachments/assets/0c9bae21-3382-4f84-b995-cd204076a45c" />
-<img width="1916" height="959" alt="Screenshot 2026-04-15 132759" src="https://github.com/user-attachments/assets/a5064b31-dadc-4907-8e89-3359e6056d14" />
-<img width="1908" height="977" alt="Screenshot 2026-04-15 132806" src="https://github.com/user-attachments/assets/28d68cde-1b41-40b0-a97e-2273ffeaad6a" />
-<img width="1914" height="971" alt="Screenshot 2026-04-15 132828" src="https://github.com/user-attachments/assets/46899854-5e19-4a5c-86d4-856f5a28d925" />
-<img width="1908" height="976" alt="Screenshot 2026-04-15 132849" src="https://github.com/user-attachments/assets/b11e72ab-2db4-4e95-b262-69ad441f308e" />
-<img width="1908" height="975" alt="Screenshot 2026-04-15 132900" src="https://github.com/user-attachments/assets/1b155330-58e0-482e-8643-efa53f3c71e0" />
+*Upload your contracts, drawings, RFIs, and daily reports — get instant insights, risk flags, delay claim detection, and ready-to-send documents. Built for how construction actually works.*
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Visit%20App-00a8f0?style=for-the-badge&logo=firebase&logoColor=white)](https://project-11d70901-66cf-42-d3a19.web.app)
+[![Backend API](https://img.shields.io/badge/Backend%20API-Cloud%20Run-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://prism-backend-975704476111.us-central1.run.app)
+[![React](https://img.shields.io/badge/React%2019-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.11-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+
+</div>
+
+---
+
+<div align="center">
+
+## What PRISM Does
+
+</div>
+
+Most construction software is just digital paperwork. PRISM is different — it reads your documents, understands your project, and works like an expert assistant that never sleeps.
+
+Upload a contract and PRISM extracts every obligation, deadline, and risk clause. Upload a daily report and it writes the formal narrative, flags potential delay claims, and detects weather impact events. Upload an RFI and it drafts a professional response referencing your project documents. It connects the dots across your entire document stack so you don't have to.
+
+---
+
+## Screenshots
+
+<img width="1911" alt="Dashboard" src="https://github.com/user-attachments/assets/af75d5da-acb5-4aa1-8a3e-73b2ae6ad46a" />
+<img width="1887" alt="Documents" src="https://github.com/user-attachments/assets/838b0c5c-8fe0-4ece-9386-39424963f9e0" />
+<img width="1915" alt="Risk Intelligence" src="https://github.com/user-attachments/assets/8988b67e-4c71-4a40-b203-347f5ef1d035" />
+<img width="1908" alt="Contract Analysis" src="https://github.com/user-attachments/assets/0c9bae21-3382-4f84-b995-cd204076a45c" />
+<img width="1916" alt="Scheduling" src="https://github.com/user-attachments/assets/a5064b31-dadc-4907-8e89-3359e6056d14" />
+<img width="1908" alt="Safety AI" src="https://github.com/user-attachments/assets/28d68cde-1b41-40b0-a97e-2273ffeaad6a" />
+<img width="1914" alt="RFI Register" src="https://github.com/user-attachments/assets/46899854-5e19-4a5c-86d4-856f5a28d925" />
+<img width="1908" alt="Change Orders" src="https://github.com/user-attachments/assets/b11e72ab-2db4-4e95-b262-69ad441f308e" />
+<img width="1908" alt="Obligations" src="https://github.com/user-attachments/assets/1b155330-58e0-482e-8643-efa53f3c71e0" />
 
 ---
 
 ## Features
 
-### Core
-- **Auto Document Classification** — AI classifies uploads: Contract, Drawings, Specs, RFIs, Daily Reports, Change Orders, and more
-- **Live Project Dashboard** — Extracts project name, value, parties, dates, and LDs from your contract automatically
-- **Risk Intelligence** — Detects risks across all project documents without being asked
-- **Cross-Document Q&A** — Ask questions across all project docs with source citations
+### Document Intelligence
+Upload any construction document — PRISM classifies it, indexes it, and makes it queryable across your whole project.
 
-### AI Features
-| Feature | Description |
-|---------|-------------|
-| **Document Generation** | RFI responses, delay notices, change order assessments, weekly summaries |
-| **Contract Risk Analysis** | Clause-level risk scoring with severity ratings and suggested actions |
-| **Cost Forecasting** | EAC, CPI, variance analysis, and scenario range from project data |
+| Capability | What it does |
+|---|---|
+| **Auto Classification** | AI identifies document type: Contract, Drawing, RFI, Spec, Daily Report, Change Order, or Meeting Minutes |
+| **Cross-Document Q&A** | Ask questions in plain English and get answers with source citations across all uploaded documents |
+| **Project Dashboard** | Automatically extracts project name, contract value, parties, key dates, and liquidated damages |
+| **Risk Intelligence** | Continuously scans all documents for risks — surfaced without being asked |
+
+---
+
+### Contract & Compliance
+
+| Capability | What it does |
+|---|---|
+| **Contract Risk Analysis** | Clause-level risk scoring with severity ratings (Critical / High / Medium / Low) and recommended actions |
+| **Obligations Tracker** | Extracts every deadline, notice requirement, and milestone from the contract — color-coded by urgency, never miss a date |
+| **Spec Compliance** | Checks submittals against specification requirements with a compliance score and line-by-line gap analysis |
+
+---
+
+### Project Administration — with AI
+
+These are the tools construction teams use every day. PRISM adds AI on top of each one.
+
+| Tool | What makes it different |
+|---|---|
+| **RFI Register** | Full log with status tracking, days-open counter, and AI-generated responses that reference your project documents |
+| **Change Order Register** | Contract value waterfall (Original → Approved → Pending → Revised), AI clause assessment with in-scope/risk/recommendation scoring, one-click approve or reject |
+| **Punch List** | Priority-scored deficiency tracking with ball-in-court workflow (Contractor / Owner / Architect / Inspector) and AI auto-categorization across all open items |
+| **Submittals** | Ball-in-court status tracking, days-in-review counter, AI pre-review with compliance scoring and red-flag detection |
+| **Daily Log** | Structured daily entry → AI writes the formal narrative, automatically detects potential delay claims, and flags weather impact events |
+
+---
+
+### Cost & Schedule Intelligence
+
+| Capability | What it does |
+|---|---|
+| **Cost Forecasting** | EAC, CPI, SPI, cost variance analysis, and scenario range from your project data |
 | **Predictive Delay Risk** | Phase-by-phase delay probability with recovery recommendations |
-| **Schedule Optimization** | AI reorders and compresses your task list to save time |
-| **NL Task Entry** | Add schedule tasks in plain English — AI parses dates, durations, dependencies |
-| **Subcontractor Scorecard** | Quality, schedule, safety, communication, and cost scoring per sub |
-| **Meeting Intelligence** | Upload meeting PDFs → action items, decisions, risks, follow-ups |
-| **Spec Compliance** | Check submittals against spec requirements with compliance scoring |
-| **Blueprint CV** | Computer vision analysis of drawings using Gemini Vision AI |
-| **Safety AI** | PPE compliance detection, hazard identification, site safety scoring |
-| **RFI Register** | Full RFI log with status tracking, AI-generated responses, and response time analytics |
-| **Change Order Register** | Contract value waterfall, AI clause assessment, approve/reject workflow, budget exposure |
-| **Contract Obligations** | Auto-extract every deadline, notice, and milestone from the contract — never miss a date |
+| **Schedule Optimization** | AI reorders and compresses your task list to find time savings |
+| **Natural Language Task Entry** | Add schedule items in plain English — AI parses dates, durations, and dependencies |
 
-### Authentication
-Demo mode with 4 role-based profiles — no sign-up required:
-- **Marcus Rivera** — Project Manager
-- **Sarah Kim** — Site Engineer
-- **Ahmed Hassan** — Quantity Surveyor
-- **Priya Nair** — Safety Officer
+---
+
+### Safety & Field
+
+| Capability | What it does |
+|---|---|
+| **Safety AI** | Upload a site photo — detects PPE compliance, identifies hazards, generates a safety score |
+| **Blueprint Analysis** | Gemini Vision reads drawing sheets — counts components, flags coordination issues, extracts dimensions |
+| **Meeting Intelligence** | Upload a meeting PDF → extracts action items, decisions, risks, and follow-ups |
+| **Subcontractor Scorecard** | Rates each subcontractor on quality, schedule, safety, communication, and cost |
+| **Document Generation** | One-click generation of RFI responses, delay notices, change order assessments, and weekly summaries |
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| Frontend | React 19 + TypeScript + Vite |
-| Styling | Inline styles · Outfit + JetBrains Mono fonts |
-| Routing | React Router v7 |
-| Backend | FastAPI + Uvicorn · Python 3.11 |
-| LLM | LLaMA 3.1 8B Instant via Groq API |
-| Vision AI | Gemini 2.0 Flash |
-| Embeddings | sentence-transformers/all-MiniLM-L6-v2 (384-dim, local CPU) |
-| Vector Store | FAISS with MMR retrieval |
-| PDF Reading | pdfplumber + pypdf |
-| Frontend Hosting | Firebase Hosting |
-| Backend Hosting | Google Cloud Run |
+|---|---|
+| **Frontend** | React 19 · TypeScript · Vite |
+| **Styling** | Inline styles — zero dependencies · Outfit + JetBrains Mono |
+| **Routing** | React Router v7 |
+| **Backend** | FastAPI · Uvicorn · Python 3.11 |
+| **LLM** | LLaMA 3.1 8B Instant via Groq API |
+| **Vision AI** | Gemini 2.0 Flash |
+| **Embeddings** | sentence-transformers/all-MiniLM-L6-v2 (384-dim, CPU) |
+| **Vector Store** | FAISS with MMR retrieval |
+| **PDF Parsing** | pdfplumber + pypdf |
+| **Frontend Hosting** | Firebase Hosting |
+| **Backend Hosting** | Google Cloud Run |
 
 ---
 
-## Project Structure
+## Demo Access
 
-```
-prism/
-├── backend/
-│   ├── main.py                  # All FastAPI routes
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   ├── railpack.json
-│   └── .env                     # GROQ_API_KEY, GEMINI_API_KEY
-│
-└── frontend/
-    ├── src/
-    │   ├── App.tsx              # Router + localStorage auth + session state
-    │   ├── firebase.ts          # Firebase SDK config
-    │   ├── api/client.ts        # Typed API client
-    │   ├── components/
-    │   │   ├── Navbar.tsx
-    │   │   ├── Sidebar.tsx
-    │   │   ├── AICopilot.tsx
-    │   │   ├── FileUpload.tsx
-    │   │   ├── DocClassifier.tsx
-    │   │   ├── MetricCard.tsx
-    │   │   └── RiskCard.tsx
-    │   └── pages/
-    │       ├── auth/
-    │       │   └── Login.tsx    # 4 dummy role cards
-    │       └── construction/
-    │           ├── Dashboard.tsx
-    │           ├── Projects.tsx
-    │           ├── Documents.tsx
-    │           ├── GenerateDocs.tsx
-    │           ├── Analytics.tsx
-    │           ├── Scheduling.tsx
-    │           ├── Workforce.tsx
-    │           ├── Intelligence.tsx
-    │           ├── Safety.tsx
-    │           ├── RFIRegister.tsx
-    │           ├── ChangeOrders.tsx
-    │           ├── Obligations.tsx
-    │           └── Settings.tsx
-    ├── firebase.json            # Firebase Hosting config
-    └── .env.production          # VITE_API_URL → Cloud Run
-```
+No sign-up required. Choose a role at the login screen:
+
+| Role | Profile |
+|---|---|
+| **Project Manager** | Marcus Rivera — full access |
+| **Site Engineer** | Sarah Kim — field and scheduling focus |
+| **Quantity Surveyor** | Ahmed Hassan — cost and contracts focus |
+| **Safety Officer** | Priya Nair — safety and compliance focus |
 
 ---
 
@@ -122,8 +138,8 @@ prism/
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- [Groq API key](https://console.groq.com) (free)
-- [Gemini API key](https://aistudio.google.com) (free)
+- [Groq API key](https://console.groq.com) (free tier available)
+- [Gemini API key](https://aistudio.google.com) (free tier available)
 
 ### Backend
 
@@ -137,7 +153,7 @@ source venv/bin/activate     # Mac/Linux
 pip install -r requirements.txt
 ```
 
-Create `.env`:
+Create `backend/.env`:
 ```
 GROQ_API_KEY=your_groq_key_here
 GROQ_MODEL=llama-3.1-8b-instant
@@ -186,23 +202,65 @@ gcloud run deploy prism-backend `
 
 ---
 
+## Project Structure
+
+```
+prism/
+├── backend/
+│   ├── main.py              ← All FastAPI routes (single file)
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── .env                 ← GROQ_API_KEY · GEMINI_API_KEY
+│
+└── frontend/
+    └── src/
+        ├── App.tsx           ← Router · localStorage auth · session state
+        ├── api/client.ts     ← Typed API client
+        ├── components/
+        │   ├── Sidebar.tsx
+        │   ├── Navbar.tsx
+        │   ├── AICopilot.tsx
+        │   └── ...
+        └── pages/construction/
+            ├── Dashboard.tsx
+            ├── Documents.tsx
+            ├── RFIRegister.tsx
+            ├── ChangeOrders.tsx
+            ├── Obligations.tsx
+            ├── PunchList.tsx
+            ├── Submittals.tsx
+            ├── DailyLog.tsx
+            ├── Scheduling.tsx
+            ├── Analytics.tsx
+            ├── Intelligence.tsx
+            ├── Safety.tsx
+            ├── GenerateDocs.tsx
+            └── ...
+```
+
+---
+
 ## API Reference
 
 ### Session
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+|---|---|---|
 | POST | `/session/new` | Create session — returns `session_id` |
 
-### Construction
+### Documents & Q&A
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/construction/upload-classify` | Upload + auto-classify docs |
+|---|---|---|
+| POST | `/construction/upload-classify` | Upload + auto-classify documents |
 | POST | `/construction/build-project` | Build FAISS index + generate dashboard |
 | GET | `/construction/dashboard/{id}` | Get project dashboard |
-| POST | `/construction/ask` | Ask across all project docs |
+| POST | `/construction/ask` | Cross-document Q&A with citations |
+
+### AI Analysis
+| Method | Endpoint | Description |
+|---|---|---|
 | POST | `/construction/generate` | Generate RFI / delay notice / CO / weekly summary |
 | POST | `/construction/contract-risk` | Clause-level contract risk analysis |
-| POST | `/construction/cost-forecast` | EAC, CPI, cost variance forecast |
+| POST | `/construction/cost-forecast` | EAC, CPI, variance forecast |
 | POST | `/construction/predict-delays` | Phase-level delay probability |
 | POST | `/construction/optimize-schedule` | AI schedule compression |
 | POST | `/construction/nl-task` | Parse natural language task |
@@ -210,30 +268,67 @@ gcloud run deploy prism-backend `
 | POST | `/construction/meeting-intelligence` | Extract actions/decisions from meeting PDF |
 | POST | `/construction/spec-compliance` | Check submittal against spec |
 | POST | `/construction/safety-analyze` | PPE + hazard analysis from site photo |
-| POST | `/construction/analyze-blueprint` | Blueprint/drawing CV analysis |
-| POST | `/construction/rfi-register/create` | Create a new RFI |
-| GET  | `/construction/rfi-register/{id}` | List all RFIs for session |
+| POST | `/construction/analyze-blueprint` | Blueprint/drawing computer vision analysis |
+
+### RFI Register
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/construction/rfi-register/create` | Create new RFI |
+| GET | `/construction/rfi-register/{id}` | List all RFIs |
 | POST | `/construction/rfi-register/respond` | AI-generate RFI response |
-| PUT  | `/construction/rfi-register/update` | Update RFI status / response |
-| POST | `/construction/co-register/create` | Create a new change order |
-| GET  | `/construction/co-register/{id}` | List all COs for session |
+| PUT | `/construction/rfi-register/update` | Update RFI status or response |
+
+### Change Orders
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/construction/co-register/create` | Create new change order |
+| GET | `/construction/co-register/{id}` | List all change orders |
 | POST | `/construction/co-register/assess` | AI assessment of change order |
-| PUT  | `/construction/co-register/update` | Approve / reject / update CO |
+| PUT | `/construction/co-register/update` | Approve / reject / update |
+
+### Contract Obligations
+| Method | Endpoint | Description |
+|---|---|---|
 | POST | `/construction/obligations/extract` | Extract obligations from contract |
-| GET  | `/construction/obligations/{id}` | List all obligations for session |
-| PUT  | `/construction/obligations/complete` | Toggle obligation complete |
+| GET | `/construction/obligations/{id}` | List all obligations |
+| PUT | `/construction/obligations/complete` | Toggle obligation complete |
+
+### Punch List
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/construction/punch/create` | Create punch item |
+| GET | `/construction/punch/{id}` | List all punch items |
+| POST | `/construction/punch/ai-categorize` | AI categorize open items |
+| PUT | `/construction/punch/update` | Update status / ball-in-court |
+
+### Submittals
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/construction/submittals/create` | Create new submittal |
+| GET | `/construction/submittals/{id}` | List all submittals |
+| POST | `/construction/submittals/ai-review` | AI pre-review with compliance scoring |
+| PUT | `/construction/submittals/update` | Update status |
+
+### Daily Log
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/construction/daily-log/create` | Create daily log entry |
+| GET | `/construction/daily-log/{id}` | List all daily logs |
+| POST | `/construction/daily-log/ai-summary` | Generate narrative + detect delay claims |
 
 ---
 
 ## Known Limitations
 
-- Scanned PDFs need OCR first — use [ilovepdf.com](https://ilovepdf.com) to convert
-- Sessions are in-memory — redeploying the backend clears active sessions
-- Very large PDFs (100+ pages) take longer on first embed
-- Safety photo analysis requires Gemini Vision — falls back to demo data if unavailable
+- **Scanned PDFs** need OCR pre-processing — [ilovepdf.com](https://ilovepdf.com) works well
+- **Sessions are in-memory** on the backend — redeployment clears active sessions
+- **Large PDFs** (100+ pages) take longer on first embed
+- **Safety photo analysis** requires Gemini Vision — falls back to demo data if key is absent
 
 ---
 
-## Built With
+<div align="center">
 
-[FastAPI](https://fastapi.tiangolo.com) · [React](https://react.dev) · [LangChain](https://langchain.com) · [FAISS](https://github.com/facebookresearch/faiss) · [Groq](https://groq.com) · [Gemini](https://deepmind.google/technologies/gemini) · [Firebase](https://firebase.google.com) · [Cloud Run](https://cloud.google.com/run)
+Built with [FastAPI](https://fastapi.tiangolo.com) · [React](https://react.dev) · [LangChain](https://langchain.com) · [FAISS](https://github.com/facebookresearch/faiss) · [Groq](https://groq.com) · [Gemini](https://deepmind.google/technologies/gemini) · [Firebase](https://firebase.google.com) · [Cloud Run](https://cloud.google.com/run)
+
+</div>

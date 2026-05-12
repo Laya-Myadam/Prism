@@ -18,6 +18,9 @@ import Safety from "./pages/construction/Safety";
 import RFIRegister from "./pages/construction/RFIRegister";
 import ChangeOrders from "./pages/construction/ChangeOrders";
 import Obligations from "./pages/construction/Obligations";
+import PunchList from "./pages/construction/PunchList";
+import Submittals from "./pages/construction/Submittals";
+import DailyLog from "./pages/construction/DailyLog";
 
 export type AppUser = {
   uid: string;
@@ -79,6 +82,9 @@ function AppShell({ appState }: { appState: AppState }) {
             <Route path="/rfi-register" element={<RFIRegister appState={appState} />} />
             <Route path="/change-orders" element={<ChangeOrders appState={appState} />} />
             <Route path="/obligations" element={<Obligations appState={appState} />} />
+            <Route path="/punch-list" element={<PunchList appState={appState} />} />
+            <Route path="/submittals" element={<Submittals appState={appState} />} />
+            <Route path="/daily-log" element={<DailyLog appState={appState} />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>

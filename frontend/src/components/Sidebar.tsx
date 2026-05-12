@@ -82,6 +82,26 @@ const navItems: NavGroup[] = [
           <path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
         </svg>
       )},
+      { path: "/punch-list", label: "Punch List", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )},
+      { path: "/submittals", label: "Submittals", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" strokeWidth="1.7"/>
+          <path d="M14 2v6h6M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+          <circle cx="18" cy="18" r="4" fill="currentColor" opacity="0.7"/>
+          <path d="M16.5 18l1 1 2-2" stroke="#151b24" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )},
+      { path: "/daily-log", label: "Daily Log", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.7"/>
+          <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+          <path d="M8 14h1M11 14h2M15 14h1M8 18h1M11 18h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+        </svg>
+      )},
     ]
   },
   {
