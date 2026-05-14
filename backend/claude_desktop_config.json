@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "prism": {
+      "command": "python",
+      "args": ["C:/Users/Laya Myadam/prism/backend/mcp_server.py"],
+      "env": {
+        "PRISM_API_URL": "http://localhost:8000"
+      }
+    }
+  }
+}
