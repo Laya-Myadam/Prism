@@ -10,8 +10,76 @@
 [![Backend API](https://img.shields.io/badge/Backend%20API-Cloud%20Run-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://prism-backend-975704476111.us-central1.run.app)
 [![React](https://img.shields.io/badge/React%2019-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.11-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![MCP](https://img.shields.io/badge/MCP-Claude%20Desktop-orange?style=for-the-badge&logo=anthropic&logoColor=white)](https://modelcontextprotocol.io)
 
 </div>
+
+---
+
+## MCP Integration — Talk to Your Project in Claude Desktop
+
+This branch adds an **MCP (Model Context Protocol) server** so Claude Desktop can call all of PRISM's construction AI tools directly in conversation — no UI required.
+
+> *"Create an RFI asking about the rebar spec at grid line C4"*  
+> *"Assess this change order — $45,000 for unforeseen rock excavation"*  
+> *"What does the contract say about liquidated damages?"*  
+> *"Predict delay risk for Foundation, Structure, and MEP phases"*
+
+### MCP Setup
+
+**1. Start the PRISM backend**
+```bash
+cd backend
+venv\Scripts\activate
+uvicorn main:app --reload --port 8000
+```
+
+**2. Add to Claude Desktop config**
+
+Find your config file at:
+```
+C:\Users\<YourName>\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json
+```
+
+Add the `mcpServers` block:
+```json
+{
+  "mcpServers": {
+    "prism": {
+      "command": "C:/Users/<YourName>/prism/backend/venv/Scripts/python.exe",
+      "args": ["C:/Users/<YourName>/prism/backend/mcp_server.py"],
+      "env": {
+        "PRISM_API_URL": "http://localhost:8000"
+      }
+    }
+  }
+}
+```
+
+> Use the full path to your **venv Python** — not just `python`. Claude Desktop runs outside your terminal and won't find the venv otherwise.
+
+**3. Restart Claude Desktop** (fully quit via system tray → Quit, then reopen)
+
+**4. Verify** — Settings → Developer → PRISM should show green/connected
+
+### MCP Tools
+
+| Tool | What it does |
+|---|---|
+| `ask_project` | Cross-document Q&A with citations |
+| `get_dashboard` | Project summary, contract value, key dates |
+| `contract_risk_analysis` | Clause-level risk scoring |
+| `get_obligations` | All contract deadlines and milestones |
+| `create_rfi` / `respond_rfi` / `list_rfis` | Full RFI lifecycle |
+| `create_change_order` / `assess_change_order` / `list_change_orders` | Full CO lifecycle |
+| `predict_delays` | Phase-level delay probability |
+| `cost_forecast` | EAC, CPI, SPI, variance analysis |
+| `create_punch_item` | New deficiency item |
+| `generate_daily_narrative` | Formal narrative + delay claim detection |
+| `optimize_schedule` | Critical path compression |
+| `safety_analyze` | PPE + hazard detection from site photo |
+| `subcontractor_scorecard` | Performance ratings across 5 dimensions |
+| `generate_document` | Ready-to-send RFI / delay notice / CO / weekly summary |
 
 ---
 
@@ -115,6 +183,7 @@ These are the tools construction teams use every day. PRISM adds AI on top of ea
 | **Embeddings** | sentence-transformers/all-MiniLM-L6-v2 (384-dim, CPU) |
 | **Vector Store** | FAISS with MMR retrieval |
 | **PDF Parsing** | pdfplumber + pypdf |
+| **MCP Server** | Python MCP SDK · httpx |
 | **Frontend Hosting** | Firebase Hosting |
 | **Backend Hosting** | Google Cloud Run |
 
@@ -208,6 +277,7 @@ gcloud run deploy prism-backend `
 prism/
 ├── backend/
 │   ├── main.py              ← All FastAPI routes (single file)
+│   ├── mcp_server.py        ← MCP server — exposes tools to Claude Desktop
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .env                 ← GROQ_API_KEY · GEMINI_API_KEY
@@ -324,11 +394,12 @@ prism/
 - **Sessions are in-memory** on the backend — redeployment clears active sessions
 - **Large PDFs** (100+ pages) take longer on first embed
 - **Safety photo analysis** requires Gemini Vision — falls back to demo data if key is absent
+- **MCP session persistence** — each Claude Desktop conversation needs an active session ID; sessions reset on backend restart
 
 ---
 
 <div align="center">
 
-Built with [FastAPI](https://fastapi.tiangolo.com) · [React](https://react.dev) · [LangChain](https://langchain.com) · [FAISS](https://github.com/facebookresearch/faiss) · [Groq](https://groq.com) · [Gemini](https://deepmind.google/technologies/gemini) · [Firebase](https://firebase.google.com) · [Cloud Run](https://cloud.google.com/run)
+Built with [FastAPI](https://fastapi.tiangolo.com) · [React](https://react.dev) · [LangChain](https://langchain.com) · [FAISS](https://github.com/facebookresearch/faiss) · [Groq](https://groq.com) · [Gemini](https://deepmind.google/technologies/gemini) · [Firebase](https://firebase.google.com) · [Cloud Run](https://cloud.google.com/run) · [MCP](https://modelcontextprotocol.io)
 
 </div>
