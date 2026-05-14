@@ -187,6 +187,21 @@ export const getGeneratedDocs = async (sessionId: string) => {
   return res.data;
 };
 
+export const getRFIs = async (sessionId: string) => {
+  const res = await api.get(`/construction/rfi-register/${sessionId}`);
+  return res.data.rfis ?? res.data;
+};
+
+export const getChangeOrders = async (sessionId: string) => {
+  const res = await api.get(`/construction/co-register/${sessionId}`);
+  return res.data.change_orders ?? res.data;
+};
+
+export const getObligations = async (sessionId: string) => {
+  const res = await api.get(`/construction/obligations/${sessionId}`);
+  return res.data.obligations ?? res.data;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────

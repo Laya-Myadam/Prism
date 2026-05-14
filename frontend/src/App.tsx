@@ -21,6 +21,7 @@ import Obligations from "./pages/construction/Obligations";
 import PunchList from "./pages/construction/PunchList";
 import Submittals from "./pages/construction/Submittals";
 import DailyLog from "./pages/construction/DailyLog";
+import KnowledgeGraph from "./pages/construction/KnowledgeGraph";
 
 export type AppUser = {
   uid: string;
@@ -85,6 +86,7 @@ function AppShell({ appState }: { appState: AppState }) {
             <Route path="/punch-list" element={<PunchList appState={appState} />} />
             <Route path="/submittals" element={<Submittals appState={appState} />} />
             <Route path="/daily-log" element={<DailyLog appState={appState} />} />
+            <Route path="/knowledge-graph" element={<KnowledgeGraph appState={appState} />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>

@@ -17,7 +17,8 @@ const pageTitles: Record<string, { title: string; sub: string }> = {
   "/obligations":   { title: "Contract Obligations",  sub: "Deadlines · Notices · Milestones — never miss a date" },
   "/punch-list":    { title: "Punch List",            sub: "Deficiency tracking · AI categorization · Ball-in-court workflow" },
   "/submittals":    { title: "Submittals",            sub: "Ball-in-court · AI pre-review · Compliance scoring" },
-  "/daily-log":     { title: "Daily Log",             sub: "Site activity · AI narrative · Delay claim detection" },
+  "/daily-log":       { title: "Daily Log",         sub: "Site activity · AI narrative · Delay claim detection" },
+  "/knowledge-graph": { title: "Knowledge Graph",  sub: "Project entities · Relationships · Connected intelligence" },
 };
 
 export default function Navbar({ appState }: { appState: AppState }) {

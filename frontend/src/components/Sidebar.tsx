@@ -102,6 +102,14 @@ const navItems: NavGroup[] = [
           <path d="M8 14h1M11 14h2M15 14h1M8 18h1M11 18h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
         </svg>
       )},
+      { path: "/knowledge-graph", label: "Knowledge Graph", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.7"/>
+          <circle cx="5" cy="18" r="2.5" stroke="currentColor" strokeWidth="1.7"/>
+          <circle cx="19" cy="18" r="2.5" stroke="currentColor" strokeWidth="1.7"/>
+          <path d="M12 7.5L5 15.5M12 7.5L19 15.5M5 15.5h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+        </svg>
+      )},
     ]
   },
   {

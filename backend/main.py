@@ -573,32 +573,50 @@ Analyze this site photo like a professional site manager. Return ONLY valid JSON
             ocr_sample = ocr_text[:3000] if ocr_text else "No text extracted"
             cv_summary = f"Image: {w}x{h}px. Detected {rectangles} rectangular regions, {circles} circular elements, {line_count} lines."
 
-            llm_prompt = f"""You are an expert architect analyzing a construction blueprint.
-Here is what computer vision and OCR extracted from the blueprint image:
+            llm_prompt = f"""You are a senior architect and construction document analyst. Analyze this blueprint based on computer vision and OCR data extracted from the image. Be thorough and specific — extract every detail you can infer.
 
 CV Analysis: {cv_summary}
 OCR Text (raw): {ocr_sample}
-Dimensions found: {list(dimensions.keys())[:15]}
+Dimensions found: {list(dimensions.keys())[:20]}
 Level references: {level_refs}
 
-Based on this data, provide a professional architectural analysis. Return ONLY valid JSON:
+Return ONLY valid JSON with ALL fields populated as specifically as possible:
 {{
-  "description": "Professional 3-4 sentence plain English description of what this blueprint shows. Mention room layout, circulation, notable spaces, and building type.",
-  "likely_building_type": "Residential / Office / Mixed-use / Commercial / Institutional",
-  "room_count": "estimated number of rooms/spaces",
-  "rooms": [{{"number": "label", "area": "area if visible", "likely_use": "bedroom/office/hall/bathroom etc"}}],
-  "notable_features": ["plain English observations about the layout e.g. Large central hall, Double staircase, Curved entrance, Utility cluster"],
-  "structural_observations": "observations about walls, columns, structural system",
-  "circulation": "description of movement through the space — stairs, corridors, entrances"
+  "description": "Professional 4-5 sentence description: building type, floor/level shown, layout overview, key spaces, circulation pattern, and any notable architectural features",
+  "drawing_type": "Floor Plan / Section / Elevation / Detail / Site Plan / Roof Plan — infer from OCR and layout",
+  "scale": "scale if visible in OCR e.g. 1:100, 1:50 — or 'Not labeled'",
+  "likely_building_type": "Residential / Office / Mixed-use / Commercial / Retail / Institutional / Industrial / Healthcare",
+  "total_floor_area": "estimate total area from dimensions e.g. 850 m² — or 'Not determinable'",
+  "room_count": number (integer, estimate from rectangles and OCR labels),
+  "rooms": [
+    {{"number": "room label from OCR or grid ref", "area": "area in m² if visible", "likely_use": "specific use e.g. Open plan office / Executive boardroom / Reception / Server room / Bathroom / Stairwell"}}
+  ],
+  "door_count": number (estimate from OCR and rectangles),
+  "window_count": number (estimate from OCR and line patterns),
+  "structural_elements": {{
+    "columns": "count and layout description e.g. 12 columns on 6m grid",
+    "load_bearing_walls": "description of wall layout",
+    "stairs": "count and type e.g. 2 fire stairs, 1 feature staircase",
+    "core": "structural core description if visible"
+  }},
+  "grid_spacing": ["bay dimensions e.g. 6000mm x 8000mm — extract from OCR numbers"],
+  "dimensions": {{"key element": "value with unit — extract real labeled dimensions from OCR"}},
+  "level_references": {level_refs},
+  "materials": ["materials mentioned or implied in OCR text e.g. concrete, structural steel, glazing"],
+  "objects_detected": ["walls", "columns", "doors", "windows", "stairs", "lifts", "bathrooms", "structural cores", "any other elements from OCR"],
+  "notable_features": ["5-8 specific plain English observations e.g. Central atrium void, Double-height lobby, Curved glass facade, Service core offset east, Emergency exit at each corner, Open plan typical floors"],
+  "structural_observations": "2-3 sentences on the structural system — column grid, core walls, load path",
+  "circulation": "2-3 sentences on movement — primary entrance, vertical circulation (lifts/stairs), horizontal corridors",
+  "coordination_flags": ["any potential clashes or issues visible e.g. Duct zone conflicts with beam depth, Door swing conflicts with adjacent wall"]
 }}"""
 
             response = groq_client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[
-                    {"role": "system", "content": "You are an expert architect. Return only valid JSON. No markdown."},
+                    {"role": "system", "content": "You are a senior architect and construction document analyst. Return only valid JSON with no markdown. Populate every field as specifically as possible based on the data provided."},
                     {"role": "user", "content": llm_prompt}
                 ],
-                max_tokens=800,
+                max_tokens=2000,
                 temperature=0.1,
             )
             raw_llm = response.choices[0].message.content.strip()
@@ -610,6 +628,17 @@ Based on this data, provide a professional architectural analysis. Return ONLY v
             likely_building_type = llm_result.get("likely_building_type", "Unknown")
             structural_obs = llm_result.get("structural_observations", "")
             circulation = llm_result.get("circulation", "")
+            drawing_type = llm_result.get("drawing_type", "Floor Plan")
+            scale = llm_result.get("scale", "Not labeled")
+            total_floor_area = llm_result.get("total_floor_area", "Not determinable")
+            room_count = llm_result.get("room_count", rectangles // 3)
+            door_count = llm_result.get("door_count", 0)
+            window_count = llm_result.get("window_count", 0)
+            grid_spacing = llm_result.get("grid_spacing", [])
+            coordination_flags = llm_result.get("coordination_flags", [])
+            structural_elements_detail = llm_result.get("structural_elements", {})
+            if llm_result.get("dimensions"):
+                dimensions.update(llm_result["dimensions"])
         except Exception as llm_err:
             print(f"[LLaMA fallback failed]: {llm_err}")
             contextual_summary = f"OpenCV analysis: {w}×{h}px image with {rectangles} rectangular regions and {line_count} lines detected."
@@ -628,15 +657,23 @@ Based on this data, provide a professional architectural analysis. Return ONLY v
 
         return {
             "description": contextual_summary,
-            "drawing_type": "Floor Plan",
+            "drawing_type": drawing_type,
+            "scale": scale,
+            "total_floor_area": total_floor_area,
+            "room_count": room_count,
+            "door_count": door_count,
+            "window_count": window_count,
+            "grid_spacing": grid_spacing,
             "objects_detected": found_objects,
             "dimensions": dimensions,
             "level_references": level_refs,
-            "materials": found_materials,
+            "materials": found_materials if found_materials else list(structural_elements_detail.get("materials", [])),
             "rooms": rooms,
             "notable_features": notable_features,
             "likely_building_type": likely_building_type,
+            "coordination_flags": coordination_flags,
             "structural_elements": {
+                **structural_elements_detail,
                 "rectangular_regions": str(rectangles),
                 "circular_elements": str(circles),
                 "lines_detected": str(line_count),

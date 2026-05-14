@@ -229,8 +229,9 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "session_id": {"type": "string"},
                     "budget": {"type": "number", "description": "Original budget / BAC"},
-                    "actual_cost": {"type": "number", "description": "Actual cost to date"},
-                    "earned_value": {"type": "number", "description": "Earned value (% complete × BAC)"},
+                    "actual_cost": {"type": "number", "description": "Actual cost spent to date"},
+                    "pct_complete": {"type": "number", "description": "Percentage complete (0-100). If omitted, calculated from earned_value/budget."},
+                    "earned_value": {"type": "number", "description": "Earned value (% complete × BAC) — used to derive pct_complete if not provided"},
                 },
                 "required": ["session_id"],
             },
@@ -425,7 +426,17 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         return _text(result)
 
     if name == "cost_forecast":
-        result = await _post("/construction/cost-forecast", arguments)
+        budget = arguments.get("budget", 0)
+        actual_cost = arguments.get("actual_cost", arguments.get("spent", 0))
+        earned_value = arguments.get("earned_value", 0)
+        pct_complete = arguments.get("pct_complete", round(earned_value / budget * 100, 1) if budget else 0)
+        body = {
+            "session_id": arguments["session_id"],
+            "budget": budget,
+            "spent": actual_cost,
+            "pct_complete": pct_complete,
+        }
+        result = await _post("/construction/cost-forecast", body)
         return _text(result)
 
     if name == "create_punch_item":
