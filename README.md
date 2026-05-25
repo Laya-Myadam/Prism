@@ -264,11 +264,14 @@ Four layers of protection run on every input and output before the agent ever se
 
 | Feature | Detail |
 |---|---|
-| **RAGAS Metrics** | `faithfulness`, `answer_relevancy`, `context_precision` — run with `python -m eval.ragas_eval` |
+| **RAGAS Metrics** | `faithfulness`, `answer_relevancy`, `context_precision` — run with `python -m eval.ragas_eval --mlflow` |
 | **Benchmark Runner** | 20 Q&A pairs across all 5 agents — scores routing accuracy, tool accuracy, keyword hit rate, latency |
+| **MLflow Tracking** | `--mlflow` flag on both eval scripts logs all metrics to `prism-benchmark` / `prism-ragas` experiments — view at `mlflow ui` |
+| **DVC Pipelines** | `dvc repro` runs the full eval pipeline (benchmark → ragas) and tracks data + output versions |
 | **Local Trace Logging** | Every agent run logged to `agent_traces` in Supabase — latency, model, tools called, estimated cost |
 | **Human Feedback** | `POST /eval/feedback` stores 👍/👎 with session and message ID — queryable via `GET /eval/feedback/{session_id}` |
 | **LangSmith** | Set `LANGCHAIN_TRACING_V2=true` + `LANGCHAIN_API_KEY` in `.env` for full LangSmith trace dashboard |
+| **E2E Tests** | 25 Playwright tests covering auth, navigation, copilot, and RFI — run with `npm run test:e2e` from `frontend/` |
 
 ---
 
@@ -317,6 +320,8 @@ This branch adds an **MCP (Model Context Protocol) server** so Claude Desktop ca
 | **Vector Store** | PGVector in Supabase + FAISS (legacy document Q&A) |
 | **RAG** | Hybrid BM25 + cosine retrieval · Cohere Rerank (optional) · semantic cache |
 | **Evaluation** | RAGAS · LangSmith · local Supabase trace logging |
+| **MLOps** | MLflow experiment tracking · DVC data + pipeline versioning |
+| **E2E Testing** | Playwright (25 tests — auth, navigation, copilot, RFI) |
 | **PDF Parsing** | pdfplumber + pypdf |
 | **MCP Server** | Python MCP SDK · httpx |
 | **Frontend Hosting** | Firebase Hosting |
@@ -350,16 +355,24 @@ prism/
 │   │       ├── cache.py         ← Semantic cache at 0.92 threshold
 │   │       ├── memory.py        ← Cross-session memory extract + retrieve
 │   │       └── pipeline.py      ← ingest_text() orchestrator
-│   └── eval/
-│       ├── ragas_eval.py        ← RAGAS metrics (faithfulness, relevancy, precision)
-│       ├── runner.py            ← Benchmark runner (20 Q&A pairs, all 5 agents)
-│       └── benchmark.json       ← Ground truth Q&A dataset
+│   ├── eval/
+│   │   ├── ragas_eval.py        ← RAGAS metrics (faithfulness, relevancy, precision) + MLflow logging
+│   │   ├── runner.py            ← Benchmark runner (20 Q&A pairs, all 5 agents) + MLflow logging
+│   │   └── benchmark.json       ← Ground truth Q&A dataset
+│   ├── dvc.yaml                 ← DVC pipeline (benchmark + ragas stages, reproducible eval)
 │   └── .env                     ← GROQ_API_KEY · GEMINI_API_KEY · SUPABASE_URL · SUPABASE_SERVICE_KEY
 │
 └── frontend/
     ├── public/
     ├── firebase.json
     ├── .firebaserc
+    ├── playwright.config.ts      ← E2E test config (Chromium, auto-start dev server)
+    ├── tests/
+    │   └── e2e/
+    │       ├── auth.spec.ts      ← Login + role selection tests
+    │       ├── navigation.spec.ts← Sidebar navigation tests (all 9 pages)
+    │       ├── copilot.spec.ts   ← AI Copilot panel tests
+    │       └── rfi.spec.ts       ← RFI Register tests
     └── src/
         ├── App.tsx               ← Router · localStorage auth · session/project state
         ├── components/
@@ -798,6 +811,46 @@ Run these SQL files in the Supabase SQL editor in order:
 
 ---
 
+## Testing
+
+### E2E Tests (Playwright)
+
+25 tests covering auth, sidebar navigation, AI Copilot, and RFI Register.
+
+```bash
+cd frontend
+npm run test:e2e           # headless, all tests
+npm run test:e2e:ui        # Playwright UI mode (interactive)
+npm run test:e2e:report    # open last HTML report
+```
+
+**Against production:**
+```powershell
+$env:PLAYWRIGHT_BASE_URL = "https://your-app.web.app"
+$env:CI = "true"
+npx playwright test
+```
+
+### Eval Pipeline (MLflow + DVC)
+
+```bash
+cd backend
+
+# Run benchmark only
+python -m eval.runner --session_id demo --mlflow
+
+# Run RAGAS only
+python -m eval.ragas_eval --session_id demo --mlflow
+
+# Run full pipeline (both stages, tracks data versions)
+dvc repro
+
+# View metrics in MLflow UI
+mlflow ui   # open http://localhost:5000
+```
+
+---
+
 ## MCP Setup
 
 **1. Start the PRISM backend**
@@ -922,7 +975,7 @@ gcloud run deploy prism-backend `
   --region us-central1 `
   --platform managed `
   --allow-unauthenticated `
-  --set-env-vars "GROQ_API_KEY=...,GROQ_MODEL=llama-3.1-8b-instant,GEMINI_API_KEY=...,SUPABASE_URL=...,SUPABASE_KEY=..." `
+  --set-env-vars "GROQ_API_KEY=...,GROQ_MODEL=llama-3.1-8b-instant,GEMINI_API_KEY=...,SUPABASE_URL=...,SUPABASE_SERVICE_KEY=..." `
   --memory 4Gi `
   --timeout 300
 ```
@@ -978,6 +1031,6 @@ gcloud run deploy prism-backend `
 
 <div align="center">
 
-Built with [FastAPI](https://fastapi.tiangolo.com) · [React](https://react.dev) · [Supabase](https://supabase.com) · [LangGraph](https://langchain-ai.github.io/langgraph) · [FAISS](https://github.com/facebookresearch/faiss) · [Groq](https://groq.com) · [Gemini](https://deepmind.google/technologies/gemini) · [fastembed](https://github.com/qdrant/fastembed) · [RAGAS](https://docs.ragas.io) · [Firebase](https://firebase.google.com) · [Cloud Run](https://cloud.google.com/run) · [MCP](https://modelcontextprotocol.io)
+Built with [FastAPI](https://fastapi.tiangolo.com) · [React](https://react.dev) · [Supabase](https://supabase.com) · [LangGraph](https://langchain-ai.github.io/langgraph) · [FAISS](https://github.com/facebookresearch/faiss) · [Groq](https://groq.com) · [Gemini](https://deepmind.google/technologies/gemini) · [fastembed](https://github.com/qdrant/fastembed) · [RAGAS](https://docs.ragas.io) · [MLflow](https://mlflow.org) · [DVC](https://dvc.org) · [Playwright](https://playwright.dev) · [Firebase](https://firebase.google.com) · [Cloud Run](https://cloud.google.com/run) · [MCP](https://modelcontextprotocol.io)
 
 </div>

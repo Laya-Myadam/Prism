@@ -16,6 +16,14 @@ backend/agents/**/__pycache__/
 backend/eval/results/
 backend/eval/*.json.out
 
+# MLflow local runs (server tracks these, not git)
+mlruns/
+mlflow.db
+
+# DVC cache (data files cached locally, not committed)
+.dvc/cache/
+.dvc/tmp/
+
 # Playwright
 frontend/tests/reports/
 frontend/playwright-report/
