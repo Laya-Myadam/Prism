@@ -130,6 +130,46 @@ const navItems: NavGroup[] = [
     ]
   },
   {
+    group: "PROPERTY MANAGEMENT",
+    items: [
+      { path: "/pm-leases", label: "Lease Abstraction", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" strokeWidth="1.7"/>
+          <path d="M14 2v6h6M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+        </svg>
+      ), badge: "AI" },
+      { path: "/pm-tenants", label: "Tenant Risk", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <circle cx="9" cy="7" r="3" stroke="currentColor" strokeWidth="1.7"/>
+          <path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+          <path d="M16 11l2 2 4-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ), badge: "AI" },
+      { path: "/pm-noi", label: "NOI Forecaster", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M3 20l4-8 4 4 4-6 4 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ), badge: "AI" },
+      { path: "/pm-maintenance", label: "Maintenance", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ) },
+      { path: "/pm-cam", label: "CAM Reconciliation", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="currentColor" strokeWidth="1.7"/>
+          <path d="M12 8v4l3 3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+        </svg>
+      ), badge: "AI" },
+      { path: "/pm-approvals", label: "Approval Queue", icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M12 2a10 10 0 100 20A10 10 0 0012 2z" stroke="currentColor" strokeWidth="1.7"/>
+        </svg>
+      ) },
+    ]
+  },
+  {
     group: "ACCOUNT",
     items: [
       { path: "/settings", label: "Settings", icon: (

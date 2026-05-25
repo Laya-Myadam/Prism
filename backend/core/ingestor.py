@@ -5,10 +5,27 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from core.image_extractor import extract_images_from_pdf
 
+
+def _ocr_page(pdf_path: str, page_num: int) -> str:
+    """Run Tesseract OCR on a single PDF page (1-indexed). Returns extracted text."""
+    try:
+        import pytesseract
+        from pdf2image import convert_from_path
+        import platform
+        if platform.system() == "Windows":
+            pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, dpi=200)
+        if images:
+            return pytesseract.image_to_string(images[0])
+    except Exception as e:
+        print(f"[OCR page {page_num} failed]: {e}")
+    return ""
+
+
 def ingest_pdf(pdf_path: str):
     all_documents = []
 
-    # 1. Extract text page by page
+    # 1. Extract text page by page — fall back to OCR for scanned pages
     with pdfplumber.open(pdf_path) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
             page_text = page.extract_text()
@@ -17,6 +34,18 @@ def ingest_pdf(pdf_path: str):
                     page_content=page_text,
                     metadata={"source": "text", "page": page_num}
                 ))
+            else:
+                # Page has no extractable text — likely scanned, try OCR
+                print(f"[Page {page_num}] No text found — attempting OCR...")
+                ocr_text = _ocr_page(pdf_path, page_num)
+                if ocr_text.strip():
+                    print(f"[Page {page_num}] OCR extracted {len(ocr_text)} chars")
+                    all_documents.append(Document(
+                        page_content=ocr_text,
+                        metadata={"source": "ocr", "page": page_num}
+                    ))
+                else:
+                    print(f"[Page {page_num}] OCR returned no text — skipping")
 
     # 2. Extract and describe embedded images
     print("Scanning for images in your document...")

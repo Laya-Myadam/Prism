@@ -5,6 +5,7 @@ import shutil
 import base64
 import json
 import re
+import asyncio
 from pathlib import Path
 from typing import Optional, List
 from dotenv import load_dotenv
@@ -48,6 +49,61 @@ try:
     _FIRESTORE_AVAILABLE = True
 except ImportError:
     _FIRESTORE_AVAILABLE = False
+
+# ── Supabase ───────────────────────────────────────────────────────────────────
+_supa = None
+def get_supa():
+    global _supa
+    if _supa is not None:
+        return _supa
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+    if not url or not key:
+        return None
+    try:
+        from supabase import create_client
+        _supa = create_client(url, key)
+    except Exception as e:
+        print(f"[Supabase init failed]: {e}")
+        _supa = None
+    return _supa
+
+def sb_insert(table: str, row: dict):
+    try:
+        sb = get_supa()
+        if sb:
+            sb.table(table).insert(row).execute()
+        else:
+            print(f"[Supabase insert {table}]: no client — check SUPABASE_URL and SUPABASE_KEY env vars")
+    except Exception as e:
+        print(f"[Supabase insert {table} FAILED — columns sent: {list(row.keys())}]: {e}")
+
+DEMO_SESSION_ID = "demo"
+
+def sb_list(table: str, session_id: str) -> list:
+    try:
+        sb = get_supa()
+        if sb:
+            ids = [session_id]
+            if session_id != DEMO_SESSION_ID:
+                ids.append(DEMO_SESSION_ID)
+            res = sb.table(table).select("*").in_("session_id", ids).order("created_at").execute()
+            rows = res.data or []
+            # demo rows first, user rows appended after
+            demo = [r for r in rows if r.get("session_id") == DEMO_SESSION_ID]
+            user = [r for r in rows if r.get("session_id") != DEMO_SESSION_ID]
+            return demo + user
+    except Exception as e:
+        print(f"[Supabase list {table}]: {e}")
+    return []
+
+def sb_update(table: str, row_id: str, updates: dict):
+    try:
+        sb = get_supa()
+        if sb:
+            sb.table(table).update(updates).eq("id", row_id).execute()
+    except Exception as e:
+        print(f"[Supabase update {table}]: {e}")
 
 _db = None
 def get_db():
@@ -185,6 +241,25 @@ def root():
 def health():
     return {"status": "ok"}
 
+@app.get("/health/supabase")
+def health_supabase():
+    url = os.environ.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY", "")
+    if not url or not key:
+        return {
+            "connected": False,
+            "reason": "SUPABASE_URL or SUPABASE_SERVICE_KEY env var is missing",
+            "supabase_url_set": bool(url),
+            "supabase_key_set": bool(key),
+        }
+    try:
+        from supabase import create_client
+        sb = create_client(url, key)
+        sb.table("approvals").select("id").limit(1).execute()
+        return {"connected": True, "supabase_url": url[:40] + "…"}
+    except Exception as e:
+        return {"connected": False, "reason": str(e), "type": type(e).__name__}
+
 # ── Session ───────────────────────────────────────────────────────────────────
 
 @app.post("/session/new")
@@ -192,6 +267,34 @@ def new_session():
     session_id = str(uuid.uuid4())
     get_session(session_id)
     return {"session_id": session_id}
+
+@app.get("/debug/session/{session_id}")
+def debug_session(session_id: str):
+    cache = getattr(get_session, "_cache", {})
+    session = cache.get(session_id, {})
+    pm_tables = ["maintenance_requests", "tenants", "leases", "noi_reports", "cam_reconciliations"]
+
+    # Test Supabase connectivity
+    supa_ok = False
+    supa_error = ""
+    try:
+        sb = get_supa()
+        if sb:
+            sb.table("maintenance_requests").select("id").limit(1).execute()
+            supa_ok = True
+        else:
+            supa_error = "get_supa() returned None — check SUPABASE_URL / SUPABASE_SERVICE_KEY"
+    except Exception as e:
+        supa_error = str(e)
+
+    return {
+        "session_id": session_id,
+        "session_ids_in_cache": list(cache.keys()),
+        "counts": {t: len(session.get(t, [])) for t in pm_tables},
+        "non_empty_keys": [k for k, v in session.items() if isinstance(v, list) and len(v) > 0],
+        "supabase_connected": supa_ok,
+        "supabase_error": supa_error,
+    }
 
 @app.delete("/session/{session_id}")
 def clear_session(session_id: str):
@@ -780,10 +883,23 @@ def scan_contract_risk(req: AskProjectRequest):
     try:
         from groq import Groq as GroqClient
         groq_client = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
-        prompt = f"""You are a construction contract lawyer. Identify risky clauses.
+        prompt = f"""You are a construction contract lawyer. Identify risky clauses using step-by-step reasoning.
+
+Think through this contract systematically:
+Step 1 — Scan for financial exposure: payment terms, liquidated damages, retainage, bond requirements.
+Step 2 — Scan for legal risk: indemnification scope, limitation of liability, dispute resolution, termination rights.
+Step 3 — Scan for schedule risk: milestones, no-damage-for-delay, float ownership, concurrent delay.
+Step 4 — Identify missing standard protections: force majeure, differing site conditions, material escalation.
+Step 5 — Assign overall risk score 0-100 based on your findings.
 
 Contract text:
 {context}
+
+CRITICAL RULES:
+1. Only flag clauses you can directly quote from the contract text above. Do not invent clauses.
+2. The "excerpt" field MUST be a verbatim quote from the contract — not a paraphrase.
+3. "missing_provisions" means absent from the contract text — do not list clauses that ARE present.
+4. overall_risk_score must reflect what is actually in this contract, not a generic score.
 
 Return ONLY valid JSON:
 {{
@@ -793,15 +909,18 @@ Return ONLY valid JSON:
     {{
       "title": "clause name",
       "severity": "Critical/High/Medium/Low",
-      "excerpt": "quote max 150 chars",
+      "excerpt": "verbatim quote max 150 chars from the contract",
       "risk_explanation": "why risky",
       "mitigation": "what to do",
       "category": "Financial/Schedule/Legal/Operational"
     }}
   ],
-  "positive_provisions": ["beneficial clauses"],
-  "missing_provisions": ["absent standard clauses"]
-}}"""
+  "positive_provisions": ["beneficial clauses found in this contract"],
+  "missing_provisions": ["standard protections absent from this contract"]
+}}
+
+Example of correct output for a high-risk clause:
+{{"title":"Uncapped Liquidated Damages","severity":"Critical","excerpt":"$5,000/day after completion date with no stated maximum","risk_explanation":"No cap means delay of 60 days = $300K exposure — can exceed profit margin","mitigation":"Negotiate cap at 5-10% of contract value with excusable delay carve-outs","category":"Financial"}}"""
         r = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role":"system","content":"Construction contract attorney. Return only valid JSON."},
@@ -1335,8 +1454,10 @@ class RFIRespond(BaseModel):
 async def rfi_register_create(body: RFICreate):
     session = get_session(body.session_id)
     reg = session.setdefault("rfi_register", [])
+    rfi_id = f"RFI-{len(sb_list('rfis', body.session_id)) + len(reg) + 1:03d}"
     rfi = {
-        "id": f"RFI-{len(reg)+1:03d}",
+        "id": rfi_id,
+        "session_id": body.session_id,
         "subject": body.subject,
         "description": body.description,
         "assigned_to": body.assigned_to,
@@ -1349,11 +1470,15 @@ async def rfi_register_create(body: RFICreate):
         "date_responded": None,
     }
     reg.append(rfi)
+    sb_insert("rfis", rfi)
     save_session(body.session_id)
     return rfi
 
 @app.get("/construction/rfi-register/{session_id}")
 async def rfi_register_list(session_id: str):
+    rows = sb_list("rfis", session_id)
+    if rows:
+        return rows
     return get_session(session_id).get("rfi_register", [])
 
 @app.post("/construction/rfi-register/respond")
@@ -1387,15 +1512,18 @@ Write a concise, professional RFI response that directly answers the question, c
 
 @app.put("/construction/rfi-register/update")
 async def rfi_register_update(body: RFIUpdate):
+    updates = {}
+    if body.status is not None: updates["status"] = body.status
+    if body.response is not None: updates["response"] = body.response
+    if body.date_responded is not None: updates["date_responded"] = body.date_responded
+    sb_update("rfis", body.id, updates)
     session = get_session(body.session_id)
     for rfi in session.get("rfi_register", []):
         if rfi["id"] == body.id:
-            if body.status is not None: rfi["status"] = body.status
-            if body.response is not None: rfi["response"] = body.response
-            if body.date_responded is not None: rfi["date_responded"] = body.date_responded
+            rfi.update(updates)
             save_session(body.session_id)
             return rfi
-    raise HTTPException(404, "RFI not found")
+    return {"id": body.id, **updates}
 
 
 # ── Change Order Register ──────────────────────────────────────────────────────
@@ -1426,12 +1554,15 @@ class COAssess(BaseModel):
 async def co_register_create(body: COCreate):
     session = get_session(body.session_id)
     reg = session.setdefault("co_register", [])
+    co_id = f"CO-{len(sb_list('change_orders', body.session_id)) + len(reg) + 1:03d}"
     co = {
-        "id": f"CO-{len(reg)+1:03d}",
+        "id": co_id,
+        "session_id": body.session_id,
         "title": body.title,
         "description": body.description,
         "submitted_by": body.submitted_by,
         "date_submitted": body.date_submitted,
+        "amount": body.cost_impact,
         "cost_impact": body.cost_impact,
         "schedule_impact": body.schedule_impact,
         "category": body.category,
@@ -1439,11 +1570,20 @@ async def co_register_create(body: COCreate):
         "ai_assessment": None,
     }
     reg.append(co)
+    sb_insert("change_orders", {
+        "id": co_id, "session_id": body.session_id,
+        "title": body.title, "description": body.description,
+        "amount": body.cost_impact, "status": "Pending",
+        "submitted_by": body.submitted_by, "reason": body.category,
+    })
     save_session(body.session_id)
     return co
 
 @app.get("/construction/co-register/{session_id}")
 async def co_register_list(session_id: str):
+    rows = sb_list("change_orders", session_id)
+    if rows:
+        return rows
     return get_session(session_id).get("co_register", [])
 
 @app.post("/construction/co-register/assess")
@@ -1451,12 +1591,28 @@ async def co_register_assess(body: COAssess):
     try:
         from groq import Groq as GroqClient
         gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
-        prompt = f"""You are a construction claims specialist assessing a change order.
+        prompt = f"""You are a construction claims specialist assessing a change order. Reason step by step before giving your verdict.
+
+Step 1 — Scope: Is this work required by the contract, or is it genuinely extra? Check if it's owner-directed, unforeseen, or contractor risk.
+Step 2 — Cost: Is the claimed amount reasonable for the scope described? Flag if it appears inflated or lacks breakdown.
+Step 3 — Risk: What is the owner's exposure if approved vs rejected?
+Step 4 — Recommendation: Based on steps 1-3, give a clear verdict.
 
 CO Title: {body.title}
 Description: {body.description}
 Claimed Cost: ${body.cost_impact:,.0f}
 
+Few-shot examples:
+INPUT: "Additional rebar required due to engineer redesign of beam", $18,000
+OUTPUT: {{"in_scope":"Yes","cost_reasonable":"Yes","risk_level":"Low","recommendation":"Approve","key_points":["Owner-directed design change creates entitlement","Rebar quantities verifiable from revised drawings","Rate within market range"],"negotiation_target":null}}
+
+INPUT: "General conditions overhead for 3-week delay caused by subcontractor", $45,000
+OUTPUT: {{"in_scope":"Disputed","cost_reasonable":"Review Required","risk_level":"High","recommendation":"Negotiate","key_points":["Sub delay is contractor risk per §8.3","Overhead rate not substantiated","Request daily cost breakdown and schedule analysis"],"negotiation_target":27000}}
+
+INPUT: "New waterproofing membrane — item in original scope", $12,000
+OUTPUT: {{"in_scope":"No","cost_reasonable":"Review Required","risk_level":"Medium","recommendation":"Reject","key_points":["Spec section 07100 includes this membrane","No change directive issued","Contractor assumed risk in original bid"],"negotiation_target":null}}
+
+Now assess based ONLY on the information provided above. Do not assume contract clauses, specifications, or cost rates that were not stated.
 Return ONLY valid JSON with these exact keys:
 {{
   "in_scope": "Yes or No or Disputed",
@@ -1485,6 +1641,10 @@ Return ONLY valid JSON with these exact keys:
 
 @app.put("/construction/co-register/update")
 async def co_register_update(body: COUpdate):
+    updates = {}
+    if body.status is not None: updates["status"] = body.status
+    if body.ai_assessment is not None: updates["assessment"] = body.ai_assessment
+    sb_update("change_orders", body.id, updates)
     session = get_session(body.session_id)
     for co in session.get("co_register", []):
         if co["id"] == body.id:
@@ -1492,7 +1652,7 @@ async def co_register_update(body: COUpdate):
             if body.ai_assessment is not None: co["ai_assessment"] = body.ai_assessment
             save_session(body.session_id)
             return co
-    raise HTTPException(404, "CO not found")
+    return {"id": body.id, **updates}
 
 
 # ── Contract Obligations Tracker ───────────────────────────────────────────────
@@ -1600,25 +1760,35 @@ class PunchAI(BaseModel):
 async def punch_create(body: PunchCreate):
     session = get_session(body.session_id)
     items = session.setdefault("punch_list", [])
+    pl_id = f"PL-{len(sb_list('punch_items', body.session_id)) + len(items) + 1:03d}"
     item = {
-        "id": f"PL-{len(items)+1:03d}",
+        "id": pl_id,
+        "session_id": body.session_id,
         "location": body.location,
         "trade": body.trade,
         "description": body.description,
         "priority": body.priority,
         "status": "Open",
+        "ball_in_court": "Contractor",
         "date_created": __import__("datetime").date.today().isoformat(),
         "date_resolved": None,
         "ai_category": None,
-        "ai_suggested_trade": None,
-        "ai_priority": None,
     }
     items.append(item)
+    sb_insert("punch_items", {
+        "id": pl_id, "session_id": body.session_id,
+        "description": body.description, "location": body.location,
+        "trade": body.trade, "priority": body.priority,
+        "status": "Open", "ball_in_court": "Contractor",
+    })
     save_session(body.session_id)
     return item
 
 @app.get("/construction/punch/{session_id}")
 async def punch_list(session_id: str):
+    rows = sb_list("punch_items", session_id)
+    if rows:
+        return rows
     return get_session(session_id).get("punch_list", [])
 
 @app.post("/construction/punch/ai-categorize")
@@ -1662,6 +1832,11 @@ Return ONLY valid JSON:
 
 @app.put("/construction/punch/update")
 async def punch_update(body: PunchUpdate):
+    updates = {}
+    if body.status: updates["status"] = body.status
+    if body.ball_in_court: updates["ball_in_court"] = body.ball_in_court
+    if body.ai_data: updates.update({k: v for k, v in body.ai_data.items() if k in ["category", "priority"]})
+    sb_update("punch_items", body.punch_id, updates)
     session = get_session(body.session_id)
     for item in session.get("punch_list", []):
         if item["id"] == body.punch_id:
@@ -1669,13 +1844,11 @@ async def punch_update(body: PunchUpdate):
                 item["status"] = body.status
                 if body.status == "Resolved":
                     item["date_resolved"] = __import__("datetime").date.today().isoformat()
-            if body.ball_in_court:
-                item["ball_in_court"] = body.ball_in_court
-            if body.ai_data:
-                item.update(body.ai_data)
+            if body.ball_in_court: item["ball_in_court"] = body.ball_in_court
+            if body.ai_data: item.update(body.ai_data)
             save_session(body.session_id)
             return item
-    raise HTTPException(404, "Punch item not found")
+    return {"id": body.punch_id, **updates}
 
 
 # ── Submittals Tracker ─────────────────────────────────────────────────────────
@@ -1714,13 +1887,19 @@ class SubmittalReview(BaseModel):
 async def submittal_create(body: SubmittalCreate):
     session = get_session(body.session_id)
     items = session.setdefault("submittals", [])
+    sub_id = f"SUB-{len(sb_list('submittals', body.session_id)) + len(items) + 1:03d}"
+    required = body.required_date or body.date_required
     item = {
-        "id": f"SUB-{len(items)+1:03d}",
+        "id": sub_id,
+        "session_id": body.session_id,
         "title": body.title,
         "spec_section": body.spec_section,
         "submitted_by": body.submitted_by,
+        "reviewer": body.reviewer,
         "date_submitted": body.date_submitted,
-        "date_required": body.date_required,
+        "date_required": required,
+        "required_date": required,
+        "review_deadline": body.review_deadline,
         "lead_time_days": body.lead_time_days,
         "status": "Draft",
         "ball_in_court": "GC",
@@ -1729,11 +1908,32 @@ async def submittal_create(body: SubmittalCreate):
         "ai_review": None,
     }
     items.append(item)
+    sb_insert("submittals", {
+        "id": sub_id, "session_id": body.session_id,
+        "title": body.title, "spec_section": body.spec_section,
+        "submitted_by": body.submitted_by, "reviewer": body.reviewer,
+        "status": "Draft", "date_submitted": body.date_submitted,
+        "required_date": required, "review_deadline": body.review_deadline,
+    })
     save_session(body.session_id)
     return item
 
+def _coerce_submittal(s: dict) -> dict:
+    fl = s.get("flags")
+    if isinstance(fl, str):
+        try:
+            s["flags"] = json.loads(fl)
+        except Exception:
+            s["flags"] = []
+    elif fl is None:
+        s["flags"] = []
+    return s
+
 @app.get("/construction/submittals/{session_id}")
 async def submittals_list(session_id: str):
+    rows = sb_list("submittals", session_id)
+    if rows:
+        return [_coerce_submittal(r) for r in rows]
     return get_session(session_id).get("submittals", [])
 
 @app.post("/construction/submittals/ai-review")
@@ -1794,18 +1994,22 @@ Return ONLY valid JSON:
 
 @app.put("/construction/submittals/update")
 async def submittal_update(body: SubmittalUpdate):
-    session = get_session(body.session_id)
     sid = body.submittal_id or body.id
+    updates = {"date_last_action": __import__("datetime").date.today().isoformat()}
+    if body.status: updates["status"] = body.status
+    if body.review_notes: updates["ai_review"] = body.review_notes
+    sb_update("submittals", sid, updates)
+    session = get_session(body.session_id)
     for item in session.get("submittals", []):
         if item["id"] == sid:
             if body.status: item["status"] = body.status
             if body.ball_in_court: item["ball_in_court"] = body.ball_in_court
             if body.review_notes: item["review_notes"] = body.review_notes
             if body.ai_review: item["ai_review"] = body.ai_review
-            item["date_last_action"] = __import__("datetime").date.today().isoformat()
+            item["date_last_action"] = updates["date_last_action"]
             save_session(body.session_id)
             return item
-    raise HTTPException(404, "Submittal not found")
+    return {"id": sid, **updates}
 
 
 # ── Daily Log ──────────────────────────────────────────────────────────────────
@@ -1856,8 +2060,10 @@ async def daily_log_create(body: DailyLogCreate):
     hours = body.labor_hours if body.labor_hours is not None else float(crew * 8)
     temp = body.temperature or (f"{body.temp_high}/{body.temp_low}" if body.temp_high else "")
     incidents = body.incidents or body.safety_incidents
+    dl_id = f"DL-{len(sb_list('daily_logs', body.session_id)) + len(logs) + 1:03d}"
     log = {
-        "id": f"DL-{len(logs)+1:03d}",
+        "id": dl_id,
+        "session_id": body.session_id,
         "date": body.date,
         "weather": body.weather,
         "temp_high": body.temp_high,
@@ -1878,11 +2084,38 @@ async def daily_log_create(body: DailyLogCreate):
         "ai_delay_flag": None,
     }
     logs.append(log)
+    sb_insert("daily_logs", {
+        "id": dl_id, "session_id": body.session_id,
+        "date": body.date, "weather": body.weather,
+        "crew_count": crew, "labor_hours": hours,
+        "work_performed": body.work_performed,
+        "delays": body.delays or "None reported.",
+        "incidents": incidents or "None",
+    })
     save_session(body.session_id)
     return {"log": log}
 
+def _coerce_daily_log(log: dict) -> dict:
+    # delay_claims may be stored as JSON string in DB — parse back to list
+    dc = log.get("delay_claims")
+    if isinstance(dc, str):
+        try:
+            log["delay_claims"] = json.loads(dc)
+        except Exception:
+            log["delay_claims"] = []
+    elif dc is None:
+        log["delay_claims"] = []
+    # weather_impact may be string "true"/"false" — coerce to bool
+    wi = log.get("weather_impact")
+    if isinstance(wi, str):
+        log["weather_impact"] = wi.lower() == "true"
+    return log
+
 @app.get("/construction/daily-log/{session_id}")
 async def daily_log_list(session_id: str):
+    rows = sb_list("daily_logs", session_id)
+    if rows:
+        return sorted([_coerce_daily_log(r) for r in rows], key=lambda x: x.get("date",""), reverse=True)
     logs = get_session(session_id).get("daily_logs", [])
     return sorted(logs, key=lambda x: x.get("date",""), reverse=True)
 
@@ -1916,10 +2149,24 @@ Write a professional 3-4 paragraph daily report narrative suitable for a contrac
         if body.delays and body.delay_hours > 0:
             prompt2 = f"""Construction delay analysis. Does this delay have contractual claim potential?
 
+Few-shot examples:
+INPUT: Delay="Heavy rain flooded excavation, work suspended", Hours=6
+OUTPUT: {{"claim_potential":"High","reason":"Weather event beyond contractor control — qualifies as excusable delay under standard force majeure and weather provisions","action":"Issue written notice to owner within 48h, document rainfall records, quantify time extension entitlement"}}
+
+INPUT: Delay="Concrete pump broke down, waiting for replacement", Hours=4
+OUTPUT: {{"claim_potential":"None","reason":"Equipment breakdown is contractor's risk and responsibility — no entitlement under standard contract terms","action":"Log for internal records only, accelerate next pour to recover lost time"}}
+
+INPUT: Delay="Owner's architect late issuing RFI response, structural detail unresolved", Hours=8
+OUTPUT: {{"claim_potential":"High","reason":"Owner-caused delay through late design information — entitlement to both time extension and delay damages depending on contract","action":"Issue formal written notice referencing RFI number and contract clause, track all idle costs"}}
+
+INPUT: Delay="Material delivery late due to supplier backorder", Hours=3
+OUTPUT: {{"claim_potential":"Low","reason":"Supply chain delay may qualify only if contractor can prove material was unavailable industry-wide — otherwise contractor procurement risk","action":"Document supplier communications, assess whether alternate sourcing was reasonably available"}}
+
+Now analyze based ONLY on the delay description provided. Do not assume contract clauses or site conditions not stated.
 Delay: {body.delays}
 Hours Lost: {body.delay_hours}
 
-Return ONLY JSON: {{"claim_potential": "High|Medium|Low|None", "reason": "one sentence", "action": "recommended action"}}"""
+Return ONLY JSON: {{"claim_potential": "High|Medium|Low|None", "reason": "one sentence grounded in the facts above", "action": "recommended action"}}"""
             r2 = gc.chat.completions.create(
                 model=os.getenv("GROQ_MODEL","llama-3.1-8b-instant"),
                 messages=[{"role":"user","content":prompt2}],
@@ -1945,3 +2192,1663 @@ Return ONLY JSON: {{"claim_potential": "High|Medium|Low|None", "reason": "one se
                 log["ai_summary"] = summary
                 save_session(body.session_id)
         return {"narrative": summary, "delay_claims": ["Delay documented — review against contract schedule baseline for claim eligibility"] if has_delays else [], "weather_impact": body.weather in ("Rain","Heavy Rain","Extreme Heat","Wind","Fog")}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CONSTRUCTION — WORKERS (Supabase CRUD)
+# ═════════════════════════════════════════════════════════════════════════════
+
+class WorkerCreate(BaseModel):
+    session_id: str
+    name: str
+    trade: str = ""
+    role: str = ""
+    company: str = ""
+    phone: str = ""
+    email: str = ""
+    status: str = "Active"
+    start_date: str = ""
+    daily_rate: float = 0.0
+
+class WorkerUpdate(BaseModel):
+    session_id: str
+    id: str
+    name: Optional[str] = None
+    trade: Optional[str] = None
+    role: Optional[str] = None
+    company: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    status: Optional[str] = None
+    start_date: Optional[str] = None
+    daily_rate: Optional[float] = None
+
+@app.post("/construction/workers/create")
+async def workers_create(body: WorkerCreate):
+    existing = sb_list("workers", body.session_id)
+    mem = get_session(body.session_id).setdefault("workers", [])
+    wid = f"W-{len(existing) + len(mem) + 1:03d}"
+    row = {
+        "id": wid, "session_id": body.session_id,
+        "name": body.name, "trade": body.trade, "role": body.role,
+        "company": body.company, "phone": body.phone, "email": body.email,
+        "status": body.status, "start_date": body.start_date, "daily_rate": body.daily_rate,
+    }
+    mem.append(row)
+    sb_insert("workers", row)
+    save_session(body.session_id)
+    return row
+
+@app.get("/construction/workers/{session_id}")
+async def workers_list(session_id: str):
+    rows = sb_list("workers", session_id)
+    if rows:
+        return rows
+    return get_session(session_id).get("workers", [])
+
+@app.put("/construction/workers/update")
+async def workers_update(body: WorkerUpdate):
+    updates = {k: v for k, v in body.dict().items() if k not in ("session_id", "id") and v is not None}
+    sb_update("workers", body.id, updates)
+    session = get_session(body.session_id)
+    for w in session.get("workers", []):
+        if w["id"] == body.id:
+            w.update(updates)
+    save_session(body.session_id)
+    return {"id": body.id, **updates}
+
+@app.delete("/construction/workers/{session_id}/{worker_id}")
+async def workers_delete(session_id: str, worker_id: str):
+    try:
+        sb = get_supa()
+        if sb:
+            sb.table("workers").delete().eq("id", worker_id).execute()
+    except Exception as e:
+        print(f"[Supabase delete worker]: {e}")
+    session = get_session(session_id)
+    session["workers"] = [w for w in session.get("workers", []) if w["id"] != worker_id]
+    save_session(session_id)
+    return {"deleted": worker_id}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ANTI-HALLUCINATION HELPERS
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _sanitize_lease(data: dict, raw_text: str) -> dict:
+    """Validate and clean AI-extracted lease fields. Nulls out values that
+    look invented — i.e. numeric fields that are implausibly large/small,
+    dates that don't parse, or dates that contradict each other."""
+    from datetime import datetime
+
+    def _find_in_text(value: str, text: str) -> bool:
+        """Check whether a string value (or a close variant) appears in the source text."""
+        if not value or not text:
+            return False
+        # Try exact substring, then strip $ , and try again
+        clean = str(value).replace("$", "").replace(",", "").strip()
+        return clean.lower() in text.lower()
+
+    def _parse_date(s: str):
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%b %d, %Y", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(str(s).strip(), fmt)
+            except Exception:
+                pass
+        return None
+
+    # ── Numeric sanity ────────────────────────────────────────────────────────
+    for field in ("monthly_rent", "security_deposit", "ti_allowance"):
+        val = data.get(field)
+        try:
+            val = float(val)
+            if val < 0 or val > 10_000_000:          # implausible range
+                data[field] = 0
+                data["extraction_confidence"] = "Low"
+            else:
+                data[field] = round(val, 2)
+        except (TypeError, ValueError):
+            data[field] = 0
+
+    # ── Date validation ───────────────────────────────────────────────────────
+    start_dt = _parse_date(data.get("lease_start", ""))
+    end_dt   = _parse_date(data.get("lease_end", ""))
+
+    if start_dt is None and data.get("lease_start"):
+        data["lease_start"] = "Not found"
+        data["extraction_confidence"] = "Low"
+    if end_dt is None and data.get("lease_end"):
+        data["lease_end"] = "Not found"
+        data["extraction_confidence"] = "Low"
+    if start_dt and end_dt and end_dt <= start_dt:
+        data["lease_end"] = "Review required — end date precedes start"
+        data["extraction_confidence"] = "Low"
+
+    # ── Grounding spot-check on rent ──────────────────────────────────────────
+    rent = data.get("monthly_rent", 0)
+    if rent and rent > 0:
+        # Look for the number (as int or float string) in raw text
+        if not _find_in_text(str(int(rent)), raw_text):
+            data["_rent_grounded"] = False
+            # Don't zero — but flag confidence
+            if data.get("extraction_confidence") != "Low":
+                data["extraction_confidence"] = "Medium"
+        else:
+            data.setdefault("extraction_confidence", "High")
+    else:
+        data.setdefault("extraction_confidence", "Medium")
+
+    # ── Tenant name fallback ──────────────────────────────────────────────────
+    if not data.get("tenant_name") or data["tenant_name"].lower() in ("unknown", "n/a", "none"):
+        data["tenant_name"] = "Not found — review document"
+        data["extraction_confidence"] = "Low"
+
+    data.setdefault("extraction_confidence", "High")
+    return data
+
+
+def _sanitize_tenant_risk(data: dict, financial_info: str) -> dict:
+    """Validate AI tenant risk output. Ensures score is numeric, level is valid,
+    and flags when there's insufficient info to score confidently."""
+    import re as _re
+
+    level = data.get("risk_level", "Unknown")
+    if level not in ("Low", "Medium", "High"):
+        data["risk_level"] = "Unknown"
+
+    score_str = data.get("risk_score", "—")
+    match = _re.search(r"(\d+)", str(score_str))
+    if match:
+        score_num = int(match.group(1))
+        if score_num < 0 or score_num > 100:
+            data["risk_score"] = "—"
+            data["confidence"] = "Low"
+        else:
+            data["risk_score"] = f"{score_num}/100"
+    else:
+        data["risk_score"] = "—"
+        data["confidence"] = "Low"
+
+    # If financial_info is thin (<30 chars), confidence is inherently low
+    if len(financial_info.strip()) < 30:
+        data["confidence"] = "Low"
+        if not data.get("risk_details", "").strip():
+            data["risk_details"] = "Insufficient financial information provided to score reliably."
+    else:
+        data.setdefault("confidence", "High")
+
+    return data
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROPERTY MANAGEMENT — LEASE ABSTRACTION
+# ═════════════════════════════════════════════════════════════════════════════
+
+class LeaseAbstractRequest(BaseModel):
+    session_id: str
+    raw_text: str = ""
+    property_address: str = ""
+
+@app.post("/pm/lease/abstract")
+async def pm_lease_abstract(body: LeaseAbstractRequest):
+    existing = sb_list("leases", body.session_id)
+    mem = get_session(body.session_id).setdefault("leases", [])
+    lid = f"LS-{len(existing) + len(mem) + 1:03d}"
+    try:
+        from groq import Groq as GroqClient
+        gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+        prompt = f"""You are a real estate attorney. Extract all key terms from this lease document.
+
+Few-shot examples of correct extraction:
+
+EXAMPLE 1 — Office lease:
+Input excerpt: "...Tenant: Meridian Consulting LLC...Suite 400, 1200 Harbor Blvd...term commencing January 1, 2024 expiring December 31, 2028...base rent $8,500/month...security deposit two months...annual escalation 3%...CAM included, capped at 5% per year...two 3-year renewal options at fair market value...TI allowance $45 per rentable square foot..."
+Output:
+{{"tenant_name":"Meridian Consulting LLC","property_address":"Suite 400, 1200 Harbor Blvd","lease_start":"2024-01-01","lease_end":"2028-12-31","monthly_rent":8500,"security_deposit":17000,"rent_escalation":"3% annually","cam_included":true,"cam_cap":"5% annually","renewal_options":"Two 3-year options at fair market value","termination_clause":"No early termination right stated","ti_allowance":45,"permitted_use":"General office use","ai_summary":"5-year office lease at $8,500/month with 3% annual escalation and strong TI package of $45/sqft. CAM is included with a 5% annual cap — favorable for tenant. Two renewal options provide flexibility. Red flag: no early termination right."}}
+
+EXAMPLE 2 — Retail lease:
+Input excerpt: "...Lessee: Fresh Market Grocers Inc...Unit 12, Westgate Shopping Center...commence March 1, 2025, expire February 28, 2030...monthly base rent $14,200...deposit $28,400...CPI escalation...CAM not included, tenant pays pro-rata share, no cap...one 5-year option...permitted use: grocery retail only..."
+Output:
+{{"tenant_name":"Fresh Market Grocers Inc","property_address":"Unit 12, Westgate Shopping Center","lease_start":"2025-03-01","lease_end":"2030-02-28","monthly_rent":14200,"security_deposit":28400,"rent_escalation":"CPI-based annually","cam_included":false,"cam_cap":"N/A — no cap","renewal_options":"One 5-year option","termination_clause":"No early termination right stated","ti_allowance":0,"permitted_use":"Grocery retail only","ai_summary":"5-year retail lease at $14,200/month with CPI escalation. CAM is excluded with no cap — significant risk as CAM costs are unpredictable and uncapped. Only one renewal option. Red flag: uncapped CAM and restricted use clause limits operational flexibility."}}
+
+Now extract from this lease.
+
+CRITICAL RULES — read before extracting:
+1. Only extract values EXPLICITLY stated in the lease text. Do not infer, estimate, or invent.
+2. If a numeric field (monthly_rent, security_deposit, ti_allowance) is not clearly stated, return 0.
+3. If a text field is not found, return "Not stated in document".
+4. Dates MUST be in YYYY-MM-DD format. If the date is unclear, return the text as-is (e.g. "January 2025").
+5. For extraction_confidence: return "High" if all key fields found, "Medium" if some missing, "Low" if rent or dates not found.
+
+Return ONLY valid JSON with these exact fields:
+{{
+  "tenant_name": "...",
+  "property_address": "...",
+  "lease_start": "YYYY-MM-DD or as stated",
+  "lease_end": "YYYY-MM-DD or as stated",
+  "monthly_rent": 0,
+  "security_deposit": 0,
+  "rent_escalation": "e.g. 3% annually or Not stated in document",
+  "cam_included": true/false,
+  "cam_cap": "e.g. 5% annually or Not stated in document",
+  "renewal_options": "e.g. Two 5-year options or Not stated in document",
+  "termination_clause": "summary or Not stated in document",
+  "ti_allowance": 0,
+  "permitted_use": "... or Not stated in document",
+  "extraction_confidence": "High|Medium|Low",
+  "ai_summary": "2-3 sentence summary. Flag any fields that were NOT found in the document."
+}}
+
+Lease text:
+{body.raw_text[:6000]}"""
+        r = gc.chat.completions.create(
+            model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            messages=[
+                {"role": "system", "content": "You are a real estate attorney. Extract lease terms. NEVER invent values not present in the text. Return only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0, max_tokens=900,
+        )
+        raw = r.choices[0].message.content.strip()
+        raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+        data = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
+        data = _sanitize_lease(data, body.raw_text)
+    except Exception as e:
+        print(f"[Lease abstract error]: {e}")
+        data = {
+            "tenant_name": "Not found — review document", "property_address": body.property_address,
+            "lease_start": "Not found", "lease_end": "Not found",
+            "monthly_rent": 0, "security_deposit": 0,
+            "rent_escalation": "Not stated in document", "cam_included": False, "cam_cap": "Not stated in document",
+            "renewal_options": "Not stated in document", "termination_clause": "Not stated in document",
+            "ti_allowance": 0, "permitted_use": "Not stated in document",
+            "extraction_confidence": "Low",
+            "ai_summary": "AI extraction failed — please review the document manually.",
+        }
+    row = {"id": lid, "session_id": body.session_id, "status": "Pending Approval", **data}
+    mem.append(row)
+    sb_insert("leases", {k: v for k, v in row.items() if k in (
+        "id", "session_id", "property_address", "tenant_name", "lease_start", "lease_end",
+        "monthly_rent", "security_deposit", "rent_escalation", "cam_included", "cam_cap",
+        "renewal_options", "termination_clause", "ti_allowance", "permitted_use", "ai_summary",
+        "status",
+    )})
+    save_session(body.session_id)
+    return row
+
+
+@app.post("/pm/lease/upload")
+async def pm_lease_upload(session_id: str = Form(...), file: UploadFile = File(...)):
+    """Direct PDF → lease abstraction. Extracts text with pdfplumber, skips the
+    construction document pipeline entirely."""
+    file_path = UPLOAD_DIR / file.filename
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    raw_text = ""
+    try:
+        import pdfplumber
+        with pdfplumber.open(str(file_path)) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t:
+                    raw_text += t + "\n"
+    except Exception as e:
+        print(f"[Lease PDF text extract]: {e}")
+
+    if not raw_text.strip():
+        return {"error": "Could not extract text. Ensure the PDF is not a scanned image — use ilovepdf.com to OCR it first."}
+
+    body = LeaseAbstractRequest(session_id=session_id, raw_text=raw_text, property_address="")
+    return await pm_lease_abstract(body)
+
+
+@app.get("/pm/lease/{session_id}")
+async def pm_lease_list(session_id: str):
+    rows = sb_list("leases", session_id)
+    if rows:
+        return rows
+    return get_session(session_id).get("leases", [])
+
+
+@app.post("/pm/lease/parse-text")
+async def pm_lease_parse_text(file: UploadFile = File(...)):
+    """Extract raw text from a lease PDF and return it for user review.
+    No AI processing — just pdfplumber text extraction."""
+    file_path = UPLOAD_DIR / file.filename
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    raw_text = ""
+    try:
+        import pdfplumber
+        with pdfplumber.open(str(file_path)) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t:
+                    raw_text += t + "\n"
+    except Exception as e:
+        print(f"[Lease parse-text error]: {e}")
+    if not raw_text.strip():
+        return {"text": "", "error": "Could not extract text. If this is a scanned PDF, use ilovepdf.com to OCR it first."}
+    return {"text": raw_text.strip()}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROPERTY MANAGEMENT — TENANT RISK SCORING
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TenantCreate(BaseModel):
+    session_id: str
+    name: str
+    unit: str = ""
+    email: str = ""
+    phone: str = ""
+    move_in: str = ""
+    lease_end: str = ""
+    monthly_rent: float = 0.0
+    financial_info: str = ""
+
+@app.post("/pm/tenant/create")
+async def pm_tenant_create(body: TenantCreate):
+    existing = sb_list("tenants", body.session_id)
+    mem = get_session(body.session_id).setdefault("tenants", [])
+    tid = f"T-{len(existing) + len(mem) + 1:03d}"
+    risk_score = "—"
+    risk_level = "Unknown"
+    risk_details = ""
+    if body.financial_info.strip():
+        try:
+            from groq import Groq as GroqClient
+            gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+            prompt = f"""You are a property manager assessing tenant financial risk.
+
+Few-shot examples showing correct scoring:
+
+EXAMPLE 1 — Low risk:
+Tenant: Sunrise Medical Group | Rent: $6,200/month | Info: "Established medical practice, 15 years in business, annual revenue $2.1M, credit score 780, no prior evictions, references from two previous landlords excellent, lease guaranteed by principal"
+Output: {{"risk_level":"Low","risk_score":"88/100","risk_details":"Established business with strong revenue ($2.1M) providing 28x rent coverage — well above the 3x minimum threshold. Excellent credit score of 780 and two strong landlord references. Personal guarantee from principal adds additional security. No material risk flags identified."}}
+
+EXAMPLE 2 — Medium risk:
+Tenant: Blue Wave Yoga Studio | Rent: $3,800/month | Info: "2-year-old business, revenue ~$180K last year, credit score 640, one prior late payment with previous landlord, no guarantee offered"
+Output: {{"risk_level":"Medium","risk_score":"61/100","risk_details":"Young business with modest revenue providing 3.9x rent coverage — acceptable but thin. Credit score of 640 and one prior late payment are caution flags. No personal guarantee increases landlord exposure. Recommend requiring 3-month security deposit and quarterly financial statements."}}
+
+EXAMPLE 3 — High risk:
+Tenant: Pop-Up Retail Co | Rent: $5,500/month | Info: "First-year startup, no revenue history, credit score 520, previous eviction 18 months ago, no references, no guarantee"
+Output: {{"risk_level":"High","risk_score":"28/100","risk_details":"Startup with no operating history presents severe financial risk — no basis to assess payment reliability. Credit score of 520 and prior eviction are serious red flags. Absence of personal guarantee or references leaves landlord fully exposed. Recommend rejection or require 6-month security deposit plus co-signer."}}
+
+Now assess:
+Tenant: {body.name}
+Monthly Rent: ${body.monthly_rent}
+Financial Information: {body.financial_info}
+
+CRITICAL RULES:
+1. Base your score ONLY on information explicitly provided above. Do not invent credit scores, revenue figures, or history not mentioned.
+2. If financial_info is vague or missing key data, lower your confidence and say so in risk_details.
+3. risk_score must be a number between 0-100. Do not invent a precise score when data is insufficient — use a range descriptor like "Unable to score — insufficient data".
+
+Return ONLY valid JSON:
+{{
+  "risk_level": "Low|Medium|High",
+  "risk_score": "e.g. 82/100 or Unable to score — insufficient data",
+  "risk_details": "2-3 sentence assessment. Explicitly note any information that was missing.",
+  "confidence": "High|Medium|Low"
+}}"""
+            r = gc.chat.completions.create(
+                model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+                messages=[
+                    {"role": "system", "content": "You are a property manager scoring tenant risk. Only use facts provided. Never invent financial data. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1, max_tokens=350,
+            )
+            raw = r.choices[0].message.content.strip()
+            raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+            parsed = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
+            parsed = _sanitize_tenant_risk(parsed, body.financial_info)
+            risk_level = parsed.get("risk_level", "Unknown")
+            risk_score = parsed.get("risk_score", "—")
+            risk_details = parsed.get("risk_details", "")
+        except Exception as e:
+            print(f"[Tenant risk error]: {e}")
+    row = {
+        "id": tid, "session_id": body.session_id,
+        "name": body.name, "unit": body.unit, "email": body.email, "phone": body.phone,
+        "move_in": body.move_in, "lease_end": body.lease_end, "monthly_rent": body.monthly_rent,
+        "risk_score": risk_score, "risk_level": risk_level, "risk_details": risk_details,
+        "status": "Active",
+    }
+    mem.append(row)
+    sb_insert("tenants", {k: v for k, v in row.items() if k in (
+        "id", "session_id", "name", "unit", "email", "phone",
+        "move_in", "lease_end", "monthly_rent", "risk_score", "risk_level", "risk_details", "status"
+    )})
+    save_session(body.session_id)
+    return row
+
+@app.get("/pm/tenant/{session_id}")
+async def pm_tenant_list(session_id: str):
+    rows = sb_list("tenants", session_id)
+    if rows:
+        return rows
+    return get_session(session_id).get("tenants", [])
+
+@app.put("/pm/tenant/update")
+async def pm_tenant_update(body: dict):
+    session_id = body.get("session_id", "")
+    tid = body.get("id", "")
+    updates = {k: v for k, v in body.items() if k not in ("session_id", "id")}
+    sb_update("tenants", tid, updates)
+    session = get_session(session_id)
+    for t in session.get("tenants", []):
+        if t["id"] == tid:
+            t.update(updates)
+    save_session(session_id)
+    return {"id": tid, **updates}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROPERTY MANAGEMENT — MAINTENANCE REQUESTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+class MaintenanceCreate(BaseModel):
+    session_id: str
+    unit: str = ""
+    tenant_name: str = ""
+    category: str = "General"
+    description: str = ""
+    priority: str = "Medium"
+    assigned_to: str = ""
+    date_submitted: str = ""
+    date_due: str = ""
+    estimated_cost: float = 0.0
+
+@app.post("/pm/maintenance/create")
+async def pm_maintenance_create(body: MaintenanceCreate):
+    existing = sb_list("maintenance_requests", body.session_id)
+    mem = get_session(body.session_id).setdefault("maintenance_requests", [])
+    mid = f"MR-{len(existing) + len(mem) + 1:03d}"
+    ai_diagnosis = ""
+    if body.description.strip():
+        try:
+            from groq import Groq as GroqClient
+            gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+            prompt = f"""You are a licensed property maintenance supervisor diagnosing maintenance requests.
+
+Few-shot examples:
+
+EXAMPLE 1:
+Unit: 4B | Category: Plumbing | Issue: "Water dripping from bathroom ceiling, started this morning, getting worse"
+Output: {{"likely_cause":"Active pipe leak from unit above — likely failed supply line or drain joint","urgency":"Immediate","estimated_fix_time":"2-4 hours","vendor_type":"Plumber","ai_diagnosis":"Ceiling drip with rapid progression indicates an active pressurized leak from the unit above, not condensation. Dispatch plumber immediately to shut off water supply to upper unit and locate source — delay risks structural damage and mold."}}
+
+EXAMPLE 2:
+Unit: 12A | Category: HVAC | Issue: "AC not cooling, set to 68 but unit reads 78 inside"
+Output: {{"likely_cause":"Low refrigerant or dirty condenser coil — common in units older than 5 years","urgency":"Within 24h","estimated_fix_time":"1-3 hours","vendor_type":"HVAC","ai_diagnosis":"10-degree differential between set point and actual temperature suggests refrigerant loss or blocked airflow rather than thermostat fault. Schedule HVAC technician for refrigerant check and coil inspection — priority increases if outdoor temp exceeds 85°F."}}
+
+EXAMPLE 3:
+Unit: 7C | Category: Electrical | Issue: "Outlet in kitchen sparks when I plug something in"
+Output: {{"likely_cause":"Worn outlet contacts or wiring fault — potentially arcing, fire risk","urgency":"Immediate","estimated_fix_time":"1 hour","vendor_type":"Electrician","ai_diagnosis":"Sparking outlets indicate arcing at the receptacle — a fire and electrocution hazard that requires immediate attention. Advise tenant to stop using that outlet and all others on the same circuit. Dispatch licensed electrician today."}}
+
+EXAMPLE 4:
+Unit: 2D | Category: General Maintenance | Issue: "Bedroom door doesn't close all the way, gap at bottom"
+Output: {{"likely_cause":"Door settling or humidity-caused wood expansion — minor adjustment needed","urgency":"Scheduled","estimated_fix_time":"30 minutes","vendor_type":"General Maintenance","ai_diagnosis":"Door alignment issue is cosmetic and non-urgent — likely caused by seasonal wood movement or minor frame settling. Schedule maintenance tech for door adjustment and weatherstrip replacement during next routine visit."}}
+
+Now diagnose based ONLY on the description provided. Do not invent symptoms or assume conditions not stated. If the description is too vague to determine cause, say so in ai_diagnosis and set urgency to "Within 3 days" pending inspection.
+Unit: {body.unit}
+Category: {body.category}
+Issue: {body.description}
+
+Return ONLY valid JSON:
+{{
+  "likely_cause": "brief diagnosis based on stated symptoms only",
+  "urgency": "Immediate|Within 24h|Within 3 days|Scheduled",
+  "estimated_fix_time": "e.g. 2 hours",
+  "vendor_type": "Plumber|Electrician|HVAC|General Maintenance|etc",
+  "ai_diagnosis": "2 sentence professional assessment. Note if on-site inspection needed to confirm diagnosis."
+}}"""
+            r = gc.chat.completions.create(
+                model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2, max_tokens=300,
+            )
+            raw = r.choices[0].message.content.strip()
+            raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+            parsed = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
+            ai_diagnosis = parsed.get("ai_diagnosis", "")
+        except Exception as e:
+            print(f"[Maintenance AI error]: {e}")
+    row = {
+        "id": mid, "session_id": body.session_id,
+        "unit": body.unit, "tenant_name": body.tenant_name,
+        "category": body.category, "description": body.description,
+        "priority": body.priority, "status": "Open",
+        "assigned_to": body.assigned_to, "date_submitted": body.date_submitted,
+        "date_due": body.date_due, "date_resolved": None,
+        "ai_diagnosis": ai_diagnosis, "estimated_cost": body.estimated_cost,
+    }
+    mem.append(row)
+    sb_insert("maintenance_requests", {k: v for k, v in row.items() if k in (
+        "id", "session_id", "unit", "tenant_name", "category", "description",
+        "priority", "status", "assigned_to", "date_submitted", "date_due", "ai_diagnosis", "estimated_cost"
+    )})
+    save_session(body.session_id)
+    return row
+
+@app.get("/pm/maintenance/{session_id}")
+async def pm_maintenance_list(session_id: str):
+    rows = sb_list("maintenance_requests", session_id)
+    if rows:
+        return rows
+    return get_session(session_id).get("maintenance_requests", [])
+
+@app.put("/pm/maintenance/update")
+async def pm_maintenance_update(body: dict):
+    session_id = body.get("session_id", "")
+    mid = body.get("id", "")
+    updates = {k: v for k, v in body.items() if k not in ("session_id", "id")}
+    sb_update("maintenance_requests", mid, updates)
+    session = get_session(session_id)
+    for m in session.get("maintenance_requests", []):
+        if m["id"] == mid:
+            m.update(updates)
+    save_session(session_id)
+    return {"id": mid, **updates}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROPERTY MANAGEMENT — NOI FORECASTER
+# ═════════════════════════════════════════════════════════════════════════════
+
+class NOIRequest(BaseModel):
+    session_id: str
+    property_name: str = ""
+    report_period: str = ""
+    gross_potential_rent: float = 0.0
+    vacancy_rate: float = 0.0
+    other_income: float = 0.0
+    management_fee: float = 0.0
+    insurance: float = 0.0
+    taxes: float = 0.0
+    maintenance: float = 0.0
+    utilities: float = 0.0
+    other_expenses: float = 0.0
+    purchase_price: float = 0.0
+
+@app.post("/pm/noi/calculate")
+async def pm_noi_calculate(body: NOIRequest):
+    existing = sb_list("noi_reports", body.session_id)
+    mem = get_session(body.session_id).setdefault("noi_reports", [])
+    nid = f"NOI-{len(existing) + len(mem) + 1:03d}"
+    vacancy_loss = body.gross_potential_rent * (body.vacancy_rate / 100)
+    effective_gross = body.gross_potential_rent - vacancy_loss + body.other_income
+    operating_expenses = (body.management_fee + body.insurance + body.taxes +
+                          body.maintenance + body.utilities + body.other_expenses)
+    noi = effective_gross - operating_expenses
+    cap_rate = round((noi / body.purchase_price * 100), 2) if body.purchase_price > 0 else 0.0
+    ai_summary = ""
+    ai_recommendations = ""
+    try:
+        from groq import Groq as GroqClient
+        gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+        prompt = f"""You are a commercial real estate analyst. Analyze this property's NOI and provide insights. Return ONLY valid JSON:
+{{
+  "ai_summary": "2-3 sentence assessment of financial performance",
+  "ai_recommendations": "2-3 actionable recommendations to improve NOI",
+  "performance_rating": "Excellent|Good|Fair|Poor",
+  "expense_ratio": {round(operating_expenses/effective_gross*100,1) if effective_gross else 0}
+}}
+
+Property: {body.property_name}
+Gross Potential Rent: ${body.gross_potential_rent:,.0f}/yr
+Vacancy Rate: {body.vacancy_rate}%
+Effective Gross Income: ${effective_gross:,.0f}/yr
+Total Operating Expenses: ${operating_expenses:,.0f}/yr
+NOI: ${noi:,.0f}/yr
+Cap Rate: {cap_rate}%"""
+        r = gc.chat.completions.create(
+            model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2, max_tokens=400,
+        )
+        raw = r.choices[0].message.content.strip()
+        raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+        parsed = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
+        ai_summary = parsed.get("ai_summary", "")
+        ai_recommendations = parsed.get("ai_recommendations", "")
+    except Exception as e:
+        print(f"[NOI AI error]: {e}")
+        ai_summary = f"Property generates ${noi:,.0f} NOI on ${effective_gross:,.0f} effective gross income."
+        ai_recommendations = "Review vacancy loss and expense ratios against market benchmarks."
+    row = {
+        "id": nid, "session_id": body.session_id,
+        "property_name": body.property_name, "report_period": body.report_period,
+        "gross_potential_rent": body.gross_potential_rent,
+        "vacancy_loss": vacancy_loss, "other_income": body.other_income,
+        "effective_gross": effective_gross, "operating_expenses": operating_expenses,
+        "noi": noi, "cap_rate": cap_rate,
+        "ai_summary": ai_summary, "ai_recommendations": ai_recommendations,
+        "expense_breakdown": {
+            "management_fee": body.management_fee, "insurance": body.insurance,
+            "taxes": body.taxes, "maintenance": body.maintenance,
+            "utilities": body.utilities, "other": body.other_expenses,
+        },
+    }
+    mem.append(row)
+    sb_insert("noi_reports", {k: v for k, v in row.items() if k in (
+        "id", "session_id", "property_name", "report_period",
+        "gross_potential_rent", "vacancy_loss", "other_income",
+        "effective_gross", "operating_expenses", "noi", "cap_rate",
+        "ai_summary", "ai_recommendations"
+    )})
+    save_session(body.session_id)
+    return row
+
+@app.get("/pm/noi/{session_id}")
+async def pm_noi_list(session_id: str):
+    rows = sb_list("noi_reports", session_id)
+    if rows:
+        return rows
+    return get_session(session_id).get("noi_reports", [])
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROPERTY MANAGEMENT — CAM RECONCILIATION
+# ═════════════════════════════════════════════════════════════════════════════
+
+class CAMTenant(BaseModel):
+    name: str
+    leased_sf: float
+    cam_cap_pct: float = 0.0
+
+class CAMRequest(BaseModel):
+    session_id: str
+    property_name: str = ""
+    reconcile_year: str = ""
+    total_cam_pool: float = 0.0
+    total_leasable_sf: float = 0.0
+    tenants: List[CAMTenant] = []
+
+@app.post("/pm/cam/reconcile")
+async def pm_cam_reconcile(body: CAMRequest):
+    existing = sb_list("cam_reconciliations", body.session_id)
+    mem = get_session(body.session_id).setdefault("cam_reconciliations", [])
+    cid = f"CAM-{len(existing) + len(mem) + 1:03d}"
+    tenant_results = []
+    for t in body.tenants:
+        pro_rata = (t.leased_sf / body.total_leasable_sf) if body.total_leasable_sf > 0 else 0
+        cam_share = body.total_cam_pool * pro_rata
+        cap_limit = cam_share * (1 + t.cam_cap_pct / 100) if t.cam_cap_pct > 0 else None
+        capped = cap_limit is not None and cam_share > cap_limit
+        tenant_results.append({
+            "name": t.name, "leased_sf": t.leased_sf,
+            "pro_rata_pct": round(pro_rata * 100, 2),
+            "cam_share": round(cam_share, 2),
+            "cam_cap": cap_limit, "capped": capped,
+            "billable": round(min(cam_share, cap_limit) if cap_limit else cam_share, 2),
+        })
+    ai_summary = ""
+    try:
+        from groq import Groq as GroqClient
+        gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+        tenant_str = "\n".join([f"- {t['name']}: {t['leased_sf']:,.0f} SF → ${t['billable']:,.2f} (capped: {t['capped']})" for t in tenant_results])
+        prompt = f"""Real estate CAM reconciliation analysis. Return ONLY valid JSON:
+{{
+  "ai_summary": "2-3 sentence summary of CAM reconciliation results and notable items"
+}}
+
+Property: {body.property_name} | Year: {body.reconcile_year}
+Total CAM Pool: ${body.total_cam_pool:,.2f}
+Total Leasable SF: {body.total_leasable_sf:,.0f}
+Tenant Shares:
+{tenant_str}"""
+        r = gc.chat.completions.create(
+            model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2, max_tokens=250,
+        )
+        raw = r.choices[0].message.content.strip()
+        raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+        parsed = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
+        ai_summary = parsed.get("ai_summary", "")
+    except Exception as e:
+        print(f"[CAM AI error]: {e}")
+        ai_summary = f"CAM reconciliation complete. Total pool ${body.total_cam_pool:,.2f} allocated across {len(tenant_results)} tenants."
+    row = {
+        "id": cid, "session_id": body.session_id,
+        "property_name": body.property_name, "reconcile_year": body.reconcile_year,
+        "total_cam_pool": body.total_cam_pool, "total_leasable_sf": body.total_leasable_sf,
+        "tenants": tenant_results, "ai_summary": ai_summary,
+    }
+    mem.append(row)
+    sb_insert("cam_reconciliations", {
+        "id": cid, "session_id": body.session_id,
+        "property_name": body.property_name, "reconcile_year": body.reconcile_year,
+        "total_cam_pool": body.total_cam_pool, "total_leasable": body.total_leasable_sf,
+        "tenants_data": json.dumps(tenant_results), "ai_summary": ai_summary,
+    })
+    save_session(body.session_id)
+    return row
+
+@app.get("/pm/cam/{session_id}")
+async def pm_cam_list(session_id: str):
+    rows = sb_list("cam_reconciliations", session_id)
+    if rows:
+        return rows
+    return get_session(session_id).get("cam_reconciliations", [])
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROPERTY MANAGEMENT — DAILY LOG
+# ═════════════════════════════════════════════════════════════════════════════
+
+class PMDailyLogCreate(BaseModel):
+    session_id: str
+    property_address: str = ""
+    date: str = ""
+    activities: str = ""
+    maintenance_notes: str = ""
+    tenant_interactions: str = ""
+    occupancy_notes: str = ""
+
+@app.post("/pm/daily-log/create")
+async def pm_daily_log_create(body: PMDailyLogCreate):
+    existing = sb_list("pm_daily_logs", body.session_id)
+    mem = get_session(body.session_id).setdefault("pm_daily_logs", [])
+    pid = f"PL-{len(existing) + len(mem) + 1:03d}"
+    ai_summary = ""
+    try:
+        from groq import Groq as GroqClient
+        gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+        prompt = f"""Write a brief professional property management daily activity summary (2-3 sentences) for the following:
+Date: {body.date}
+Property: {body.property_address}
+Activities: {body.activities}
+Maintenance: {body.maintenance_notes}
+Tenant Interactions: {body.tenant_interactions}
+Occupancy Notes: {body.occupancy_notes}"""
+        r = gc.chat.completions.create(
+            model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=200,
+        )
+        ai_summary = r.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[PM daily log AI]: {e}")
+        ai_summary = f"Property management activities logged for {body.property_address} on {body.date}."
+    row = {
+        "id": pid, "session_id": body.session_id,
+        "property_address": body.property_address, "date": body.date,
+        "activities": body.activities, "maintenance_notes": body.maintenance_notes,
+        "tenant_interactions": body.tenant_interactions, "occupancy_notes": body.occupancy_notes,
+        "ai_summary": ai_summary,
+    }
+    mem.append(row)
+    sb_insert("pm_daily_logs", {k: v for k, v in row.items() if k in (
+        "id", "session_id", "property_address", "date",
+        "activities", "maintenance_notes", "tenant_interactions", "occupancy_notes", "ai_summary"
+    )})
+    save_session(body.session_id)
+    return row
+
+@app.get("/pm/daily-log/{session_id}")
+async def pm_daily_log_list(session_id: str):
+    rows = sb_list("pm_daily_logs", session_id)
+    if rows:
+        return sorted(rows, key=lambda x: x.get("date", ""), reverse=True)
+    logs = get_session(session_id).get("pm_daily_logs", [])
+    return sorted(logs, key=lambda x: x.get("date", ""), reverse=True)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROPERTY MANAGEMENT — UNIT TURNOVER
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TurnoverSave(BaseModel):
+    session_id: str
+    unit: str
+    checked_items: List[str] = []
+    notes: str = ""
+    completed: bool = False
+
+@app.post("/pm/turnover/save")
+async def pm_turnover_save(body: TurnoverSave):
+    existing = sb_list("unit_turnovers", body.session_id)
+    match = next((r for r in existing if r.get("unit") == body.unit), None)
+    now_ts = __import__("datetime").datetime.utcnow().isoformat()
+    row = {
+        "session_id": body.session_id,
+        "unit": body.unit,
+        "checked_items": body.checked_items,
+        "notes": body.notes,
+        "completed": body.completed,
+        "completed_at": now_ts if body.completed else None,
+        "updated_at": now_ts,
+    }
+    if match:
+        try:
+            from supabase import create_client
+            sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+            sb.table("unit_turnovers").update(row).eq("id", match["id"]).execute()
+            row["id"] = match["id"]
+        except Exception as e:
+            print(f"[turnover update]: {e}")
+            row["id"] = match["id"]
+    else:
+        row["id"] = f"TO-{body.unit}-{int(__import__('time').time())}"
+        sb_insert("unit_turnovers", {"id": row["id"], **row})
+    return row
+
+@app.get("/pm/turnover/{session_id}")
+async def pm_turnover_list(session_id: str):
+    rows = sb_list("unit_turnovers", session_id)
+    return rows or []
+
+@app.get("/pm/turnover/{session_id}/{unit}")
+async def pm_turnover_get(session_id: str, unit: str):
+    rows = sb_list("unit_turnovers", session_id)
+    match = next((r for r in rows if r.get("unit") == unit), None)
+    return match or {}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# APPROVAL / HUMAN GUARDRAIL SYSTEM
+# ═════════════════════════════════════════════════════════════════════════════
+
+STATUS_TRANSITIONS = {
+    "lease":       {"Approved": "Active",            "Rejected": "Rejected"},
+    "maintenance": {"Approved": "Dispatch Approved", "Rejected": "Open"},
+    "cam":         {"Approved": "Finalized",          "Rejected": "Draft"},
+    "noi":         {"Approved": "Published",          "Rejected": "Draft"},
+    "tenant":      {"Approved": "Reviewed",           "Rejected": "Action Required"},
+}
+TABLE_MAP = {
+    "lease":       "leases",
+    "maintenance": "maintenance_requests",
+    "cam":         "cam_reconciliations",
+    "noi":         "noi_reports",
+    "tenant":      "tenants",
+}
+
+class ApprovalRequest(BaseModel):
+    session_id: str
+    type: str
+    reference_id: str
+    title: str = ""
+    description: str = ""
+    requested_by: str = "Staff"
+
+class ApprovalReview(BaseModel):
+    session_id: str
+    approval_id: str
+    status: str
+    review_notes: str = ""
+    reviewed_by: str = "Supervisor"
+
+@app.post("/approvals/request")
+async def approval_request(body: ApprovalRequest):
+    aid = f"APR-{body.type.upper()}-{int(__import__('time').time())}"
+    row = {
+        "id": aid, "session_id": body.session_id, "type": body.type,
+        "reference_id": body.reference_id, "title": body.title,
+        "description": body.description, "status": "Pending",
+        "requested_by": body.requested_by,
+    }
+    sb_insert("approvals", {k: v for k, v in row.items() if k in (
+        "id","session_id","type","reference_id","title","description","status","requested_by"
+    )})
+    mem = get_session(body.session_id).setdefault("approvals", [])
+    mem.append(row)
+    save_session(body.session_id)
+    return row
+
+@app.get("/approvals/{session_id}")
+async def approval_list(session_id: str):
+    rows = sb_list("approvals", session_id)
+    if rows:
+        return sorted(rows, key=lambda x: x.get("created_at",""), reverse=True)
+    return sorted(get_session(session_id).get("approvals", []), key=lambda x: x.get("created_at",""), reverse=True)
+
+@app.put("/approvals/review")
+async def approval_review(body: ApprovalReview):
+    if body.status not in ("Approved","Rejected"):
+        raise HTTPException(400, "status must be Approved or Rejected")
+    import datetime as _dt
+    now_ts = _dt.datetime.utcnow().isoformat()
+    updates = {
+        "status": body.status, "review_notes": body.review_notes,
+        "reviewed_by": body.reviewed_by, "reviewed_at": now_ts,
+    }
+    new_status = ""
+    ref_id = ""
+    apr_type = ""
+
+    # ── Update in-memory session first (always works) ─────────────────────────
+    session = get_session(body.session_id)
+    for apr in session.get("approvals", []):
+        if apr["id"] == body.approval_id:
+            apr.update(updates)
+            apr_type = apr.get("type", "")
+            ref_id   = apr.get("reference_id", "")
+            break
+
+    new_status = STATUS_TRANSITIONS.get(apr_type, {}).get(body.status, "")
+
+    # cascade status to source record in-memory
+    if new_status and ref_id:
+        for tbl_key, mem_key in [("lease","leases"),("maintenance","maintenance_requests"),
+                                   ("cam","cam_reconciliations"),("noi","noi_reports"),("tenant","tenants")]:
+            if apr_type == tbl_key:
+                for rec in session.get(mem_key, []):
+                    if rec.get("id") == ref_id:
+                        rec["status"] = new_status
+                break
+    save_session(body.session_id)
+
+    # ── Update Supabase (uses SUPABASE_KEY, same as rest of app) ─────────────
+    try:
+        sb = get_supa()
+        if sb:
+            # If in-memory didn't find it, fetch from Supabase
+            if not ref_id:
+                rows = sb.table("approvals").select("*").eq("id", body.approval_id).execute().data
+                if rows:
+                    apr_type = rows[0].get("type","")
+                    ref_id   = rows[0].get("reference_id","")
+                    new_status = STATUS_TRANSITIONS.get(apr_type,{}).get(body.status,"")
+                else:
+                    raise HTTPException(404, "Approval not found")
+
+            sb.table("approvals").update(updates).eq("id", body.approval_id).execute()
+
+            table = TABLE_MAP.get(apr_type, "")
+            if table and new_status and ref_id:
+                sb.table(table).update({"status": new_status}).eq("id", ref_id).execute()
+        else:
+            print("[approval review]: no Supabase client — updated in-memory only")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[approval review Supabase]: {e}")
+
+    return {"ok": True, "approval_id": body.approval_id, "new_status": new_status}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROJECTS — CRUD
+# ═════════════════════════════════════════════════════════════════════════════
+
+class ProjectCreate(BaseModel):
+    session_id: str
+    name: str
+    client: str = ""
+    value: str = "$0"
+    status: str = "On Track"
+    completion: int = 0
+    phase: str = "Planning"
+    rfi: int = 0
+    workers: int = 0
+    start_date: str = ""
+    end_date: str = ""
+
+class ProjectUpdate(BaseModel):
+    session_id: str
+    id: str
+    status: Optional[str] = None
+    completion: Optional[int] = None
+    phase: Optional[str] = None
+    rfi: Optional[int] = None
+    workers: Optional[int] = None
+
+@app.post("/construction/projects/create")
+async def project_create(body: ProjectCreate):
+    pid = f"PRJ-{int(__import__('time').time())}"
+    row = {"id": pid, "session_id": body.session_id, "name": body.name, "client": body.client,
+           "value": body.value, "status": body.status, "completion": body.completion, "phase": body.phase,
+           "rfi": body.rfi, "workers": body.workers, "start_date": body.start_date, "end_date": body.end_date}
+    sb_insert("projects", row)
+    get_session(body.session_id).setdefault("projects", []).append(row)
+    save_session(body.session_id)
+    return row
+
+@app.get("/construction/projects/{session_id}")
+async def project_list(session_id: str):
+    rows = sb_list("projects", session_id)
+    return rows or get_session(session_id).get("projects", [])
+
+@app.put("/construction/projects/update")
+async def project_update(body: ProjectUpdate):
+    updates = {k: v for k, v in body.dict().items() if v is not None and k not in ("session_id","id")}
+    if not updates:
+        return {"ok": True}
+    try:
+        from supabase import create_client
+        sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+        sb.table("projects").update(updates).eq("id", body.id).execute()
+    except Exception as e:
+        print(f"[project update]: {e}")
+    mem = get_session(body.session_id).get("projects", [])
+    for p in mem:
+        if p.get("id") == body.id:
+            p.update(updates)
+    return {"ok": True}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SCHEDULING — TASK CRUD
+# ═════════════════════════════════════════════════════════════════════════════
+
+class ScheduleTaskCreate(BaseModel):
+    session_id: str
+    name: str
+    phase: str = "Foundation"
+    start_day: int = 0
+    duration: int = 7
+    progress: int = 0
+    assignee: str = ""
+    status: str = "Upcoming"
+    priority: str = "medium"
+
+class ScheduleTaskUpdate(BaseModel):
+    session_id: str
+    id: str
+    status: Optional[str] = None
+    progress: Optional[int] = None
+    assignee: Optional[str] = None
+
+@app.post("/construction/schedule/create")
+async def schedule_task_create(body: ScheduleTaskCreate):
+    tid = f"TASK-{int(__import__('time').time())}"
+    row = {"id": tid, "session_id": body.session_id, "name": body.name, "phase": body.phase,
+           "start_day": body.start_day, "duration": body.duration, "progress": body.progress,
+           "assignee": body.assignee, "status": body.status, "priority": body.priority}
+    sb_insert("schedule_tasks", row)
+    get_session(body.session_id).setdefault("schedule_tasks", []).append(row)
+    save_session(body.session_id)
+    return row
+
+@app.get("/construction/schedule/{session_id}")
+async def schedule_task_list(session_id: str):
+    rows = sb_list("schedule_tasks", session_id)
+    return rows or get_session(session_id).get("schedule_tasks", [])
+
+@app.put("/construction/schedule/update")
+async def schedule_task_update(body: ScheduleTaskUpdate):
+    updates = {k: v for k, v in body.dict().items() if v is not None and k not in ("session_id","id")}
+    if not updates:
+        return {"ok": True}
+    try:
+        from supabase import create_client
+        sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+        sb.table("schedule_tasks").update(updates).eq("id", body.id).execute()
+    except Exception as e:
+        print(f"[schedule update]: {e}")
+    return {"ok": True}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# USER SETTINGS
+# ═════════════════════════════════════════════════════════════════════════════
+
+class UserSettingsSave(BaseModel):
+    uid: str
+    session_id: str = ""
+    notifications: bool = True
+    auto_risk: bool = True
+    email_alerts: bool = False
+
+@app.put("/user/settings/save")
+async def user_settings_save(body: UserSettingsSave):
+    now_ts = __import__("datetime").datetime.utcnow().isoformat()
+    row = {"uid": body.uid, "session_id": body.session_id, "notifications": body.notifications,
+           "auto_risk": body.auto_risk, "email_alerts": body.email_alerts, "updated_at": now_ts}
+    try:
+        from supabase import create_client
+        sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+        existing = sb.table("user_settings").select("uid").eq("uid", body.uid).execute().data
+        if existing:
+            sb.table("user_settings").update(row).eq("uid", body.uid).execute()
+        else:
+            sb.table("user_settings").insert(row).execute()
+    except Exception as e:
+        print(f"[user settings save]: {e}")
+    return {"ok": True}
+
+@app.get("/user/settings/{uid}")
+async def user_settings_get(uid: str):
+    try:
+        from supabase import create_client
+        sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+        rows = sb.table("user_settings").select("*").eq("uid", uid).execute().data
+        if rows:
+            return rows[0]
+    except Exception as e:
+        print(f"[user settings get]: {e}")
+    return {"notifications": True, "auto_risk": True, "email_alerts": False}
+
+
+# ── Media: Voice, Photo, Video ────────────────────────────────────────────────
+
+def _gemini_vision(file_path: Path, prompt: str) -> dict:
+    import google.generativeai as genai
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not set")
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    ext = file_path.suffix.lower()
+    mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}
+    mime = mime_map.get(ext, "image/jpeg")
+    with open(file_path, "rb") as fh:
+        image_data = base64.b64encode(fh.read()).decode()
+    response = model.generate_content([{"mime_type": mime, "data": image_data}, prompt])
+    raw = response.text.strip()
+    raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+    return json.loads(raw)
+
+
+@app.post("/media/transcribe")
+async def media_transcribe(
+    session_id: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """
+    Accept an audio file (webm/mp3/wav/m4a) and return:
+      - transcript: full text
+      - suggested_fields: dict with date, weather, crew_count, work_performed, delays, incidents
+    """
+    ext = Path(file.filename).suffix.lower() or ".webm"
+    tmp = UPLOAD_DIR / f"audio_{uuid.uuid4().hex}{ext}"
+    with open(tmp, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    try:
+        from groq import Groq
+        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        with open(tmp, "rb") as audio_f:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-large-v3",
+                file=(tmp.name, audio_f),
+                response_format="text",
+            )
+        transcript = transcription if isinstance(transcription, str) else transcription.text
+
+        # Extract structured daily-log fields from transcript
+        from groq import Groq as _Groq
+        gc = _Groq(api_key=os.getenv("GROQ_API_KEY"))
+        model_id = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        extract = gc.chat.completions.create(
+            model=model_id,
+            temperature=0.0,
+            messages=[{
+                "role": "system",
+                "content": (
+                    "Extract daily construction log fields from the transcript. "
+                    "Return ONLY valid JSON with these keys (omit any you cannot determine): "
+                    "date (YYYY-MM-DD), weather, temp_high, temp_low, crew_count (integer), "
+                    "labor_hours (number), work_performed, delays, incidents, equipment, visitors. "
+                    "Do NOT invent data not mentioned."
+                ),
+            }, {"role": "user", "content": transcript}],
+        )
+        raw = extract.choices[0].message.content.strip()
+        raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+        try:
+            fields = json.loads(raw)
+        except Exception:
+            fields = {}
+        return {"transcript": transcript, "suggested_fields": fields}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+
+
+@app.post("/media/analyze-photo")
+async def media_analyze_photo(
+    session_id: str = Form(...),
+    file: UploadFile = File(...),
+    context: str = Form(default="site"),  # "punch" | "dailylog" | "site"
+):
+    """
+    Analyze a site photo with Gemini Vision.
+    Returns: description, findings (list), severity, ai_notes, tags
+    """
+    ext = Path(file.filename).suffix.lower() or ".jpg"
+    tmp = UPLOAD_DIR / f"photo_{uuid.uuid4().hex}{ext}"
+    with open(tmp, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    try:
+        if context == "punch":
+            prompt = (
+                "You are a construction quality inspector analyzing a site photo for a punch list item. "
+                "Return ONLY valid JSON:\n"
+                "{\n"
+                '  "description": "2-3 sentence description of what you see",\n'
+                '  "findings": ["specific issue 1", "specific issue 2"],\n'
+                '  "severity": "Critical|High|Medium|Low",\n'
+                '  "ai_notes": "Recommended corrective action and spec references if visible",\n'
+                '  "tags": ["tag1", "tag2"]\n'
+                "}"
+            )
+        else:
+            prompt = (
+                "You are a construction site manager analyzing a site progress photo. "
+                "Return ONLY valid JSON:\n"
+                "{\n"
+                '  "description": "3-4 sentence summary of site conditions and visible progress",\n'
+                '  "findings": ["observation 1", "observation 2"],\n'
+                '  "severity": "None|Low|Medium|High",\n'
+                '  "ai_notes": "Key observations for the daily log narrative",\n'
+                '  "tags": ["tag1", "tag2"]\n'
+                "}"
+            )
+        result = _gemini_vision(tmp, prompt)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+
+
+def _analyze_video_groq(video_path: Path) -> dict:
+    """Fallback: extract key frames with OpenCV → Groq vision → synthesize."""
+    import cv2
+    import base64
+    from groq import Groq
+
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 1
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration_s = total_frames / fps
+
+    # Sample up to 8 frames spread evenly across the video
+    num_samples = min(8, max(1, int(duration_s / 5)))
+    sample_positions = [int(total_frames * i / num_samples) for i in range(num_samples)]
+
+    frames_b64: list[str] = []
+    for pos in sample_positions:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        # Resize to keep tokens low (max 800px wide)
+        h, w = frame.shape[:2]
+        if w > 800:
+            frame = cv2.resize(frame, (800, int(h * 800 / w)))
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        frames_b64.append(base64.b64encode(buf.tobytes()).decode())
+    cap.release()
+
+    if not frames_b64:
+        raise ValueError("Could not extract frames from video")
+
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+    # Per-frame descriptions
+    frame_descriptions: list[str] = []
+    for i, b64 in enumerate(frames_b64):
+        resp = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": (
+                        f"Frame {i+1}/{len(frames_b64)} from a construction site walkthrough. "
+                        "Describe ONLY what you can clearly and directly see in this image. "
+                        "Do NOT infer, assume, or imagine anything not visible. "
+                        "If workers are not visible, do not mention PPE or safety gear. "
+                        "Report: visible structures, materials, equipment, and areas. "
+                        "If something is unclear or not visible, say 'not visible in this frame'."
+                    )},
+                ],
+            }],
+            max_tokens=300,
+        )
+        frame_descriptions.append(f"Frame {i+1}: {resp.choices[0].message.content.strip()}")
+
+    combined = "\n".join(frame_descriptions)
+
+    synthesis_prompt = (
+        "You are a senior construction project manager. Based on these frame-by-frame observations "
+        "from a site walkthrough video, return ONLY valid JSON (no markdown). "
+        "IMPORTANT: Only include risks and safety observations that were explicitly seen in the frames. "
+        "Do NOT invent risks or safety issues that were not directly observed. "
+        "If no workers were visible, do not mention PPE. "
+        "If something was not visible, omit it rather than guess.\n"
+        "{\n"
+        '  "summary": "3-5 sentence executive summary of site conditions and overall progress",\n'
+        '  "observations": [\n'
+        '    {"area": "area name", "description": "what you see", "status": "On Track|At Risk|Concern"}\n'
+        '  ],\n'
+        '  "risks": ["risk 1", "risk 2"],\n'
+        '  "completion_estimate": 0,\n'
+        '  "action_items": ["action 1", "action 2"],\n'
+        '  "safety_observations": ["observation 1"]\n'
+        "}\n\nFrame observations:\n" + combined
+    )
+
+    synth = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": synthesis_prompt}],
+        max_tokens=1000,
+        temperature=0.0,
+    )
+    raw = synth.choices[0].message.content.strip()
+    raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+    result = json.loads(raw)
+    result["engine"] = "groq-vision"
+    return result
+
+
+@app.post("/media/analyze-video")
+async def media_analyze_video(
+    session_id: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """
+    Analyze a construction site walkthrough video.
+    Tries Gemini first; falls back to Groq vision (frame extraction) on quota errors.
+    Returns: summary, observations (list), risks (list), completion_estimate, action_items
+    """
+    import time
+    ext = Path(file.filename).suffix.lower() or ".mp4"
+    tmp = UPLOAD_DIR / f"video_{uuid.uuid4().hex}{ext}"
+    with open(tmp, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    try:
+        # ── Try Gemini first ──────────────────────────────────────────────────
+        gemini_err = None
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=api_key)
+                mime_map = {".mp4": "video/mp4", ".mov": "video/quicktime", ".avi": "video/avi", ".webm": "video/webm"}
+                mime = mime_map.get(ext, "video/mp4")
+                video_file = genai.upload_file(path=str(tmp), mime_type=mime, display_name=file.filename)
+                for _ in range(60):
+                    video_file = genai.get_file(video_file.name)
+                    if video_file.state.name != "PROCESSING":
+                        break
+                    time.sleep(2)
+                if video_file.state.name == "FAILED":
+                    raise ValueError("Gemini video processing failed")
+                model = genai.GenerativeModel("gemini-2.0-flash")
+                prompt = (
+                    "You are a senior construction project manager reviewing a site walkthrough video. "
+                    "Analyze the video and return ONLY valid JSON (no markdown):\n"
+                    "{\n"
+                    '  "summary": "3-5 sentence executive summary of site conditions and overall progress",\n'
+                    '  "observations": [\n'
+                    '    {"area": "area name", "description": "what you see", "status": "On Track|At Risk|Concern"}\n'
+                    '  ],\n'
+                    '  "risks": ["risk 1", "risk 2"],\n'
+                    '  "completion_estimate": 0,\n'
+                    '  "action_items": ["action 1", "action 2"],\n'
+                    '  "safety_observations": ["observation 1"]\n'
+                    "}"
+                )
+                response = model.generate_content([video_file, prompt])
+                raw = response.text.strip()
+                raw = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+                result = json.loads(raw)
+                result["engine"] = "gemini-vision"
+                try:
+                    genai.delete_file(video_file.name)
+                except Exception:
+                    pass
+                return result
+            except Exception as gem_e:
+                gemini_err = str(gem_e)
+                is_quota = "429" in gemini_err or "quota" in gemini_err.lower()
+                print(f"[Gemini video {'quota exceeded' if is_quota else 'failed'}, using Groq fallback]")
+
+        # ── Fallback: Groq vision (frame extraction) ──────────────────────────
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(None, _analyze_video_groq, tmp)
+            return result
+        except Exception as groq_e:
+            # Only surface Gemini error if it wasn't a quota issue
+            gemini_detail = "" if (gemini_err and ("429" in gemini_err or "quota" in gemini_err.lower())) else f"Gemini: {gemini_err} | "
+            raise HTTPException(status_code=500, detail=f"{gemini_detail}Groq: {groq_e}")
+
+    finally:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+
+
+# ── Agent chat ────────────────────────────────────────────────────────────────
+
+from fastapi.responses import StreamingResponse
+import json as _json
+
+class AgentChatRequest(BaseModel):
+    session_id: str
+    message: str
+
+@app.post("/agent/chat")
+async def agent_chat(body: AgentChatRequest):
+    from agents.orchestrator import run_agent
+    from agents.guardrails import run_input_guards, run_output_guards, GuardRejection
+    from fastapi.concurrency import run_in_threadpool
+
+    # ── Input guards (fast, synchronous, no LLM) ──────────────────────────────
+    try:
+        run_input_guards(body.message)
+    except GuardRejection as e:
+        return {
+            "answer": e.message,
+            "steps": [],
+            "agent_used": f"Guardrail ({e.layer.replace('_', ' ').title()})",
+            "tools_called": [],
+            "guardrail_layer": e.layer,
+        }
+
+    # ── Semantic cache check ───────────────────────────────────────────────────
+    try:
+        from agents.rag.cache import get_cached, store_cached
+        cached = await run_in_threadpool(get_cached, body.session_id, body.message)
+        if cached:
+            return cached
+    except Exception:
+        store_cached = None  # cache unavailable — continue to agent
+        cached       = None
+
+    # ── Agent ─────────────────────────────────────────────────────────────────
+    try:
+        raw = await run_in_threadpool(run_agent, body.session_id, body.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # ── Output guards + schema validation ─────────────────────────────────────
+    validated = run_output_guards(raw)
+    result    = validated.model_dump()
+
+    # ── Store in semantic cache (best-effort, non-blocking) ───────────────────
+    try:
+        if store_cached:
+            await run_in_threadpool(store_cached, body.session_id, body.message, result)
+    except Exception:
+        pass
+
+    return result
+
+
+# ── RAG ingestion endpoints ───────────────────────────────────────────────────
+
+class RAGIngestRequest(BaseModel):
+    session_id: str
+    doc_name:   str
+    doc_type:   str = "general"
+    text:       str
+    metadata:   dict = {}
+
+@app.post("/rag/ingest")
+async def rag_ingest(body: RAGIngestRequest):
+    """Ingest a text document into the vector store for this session."""
+    try:
+        from agents.rag.pipeline import ingest_text
+        from fastapi.concurrency import run_in_threadpool
+        result = await run_in_threadpool(
+            ingest_text,
+            body.session_id, body.doc_name, body.doc_type,
+            body.text, body.metadata,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/rag/docs/{session_id}")
+async def rag_list_docs(session_id: str):
+    """List all documents ingested for a session."""
+    try:
+        from agents.rag.vector_store import list_docs
+        from fastapi.concurrency import run_in_threadpool
+        docs = await run_in_threadpool(list_docs, session_id)
+        return {"session_id": session_id, "documents": docs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/rag/docs/{session_id}/{doc_name}")
+async def rag_delete_doc(session_id: str, doc_name: str):
+    """Delete all chunks for a specific document."""
+    try:
+        from agents.rag.vector_store import delete_doc_chunks
+        from fastapi.concurrency import run_in_threadpool
+        await run_in_threadpool(delete_doc_chunks, session_id, doc_name)
+        return {"status": "deleted", "doc_name": doc_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class RAGSearchRequest(BaseModel):
+    session_id: str
+    query:      str
+    top_k:      int = 5
+
+@app.post("/rag/search")
+async def rag_search(body: RAGSearchRequest):
+    """Direct semantic search — returns raw chunks with similarity scores."""
+    try:
+        from agents.rag.retriever import retrieve
+        from fastapi.concurrency import run_in_threadpool
+        chunks = await run_in_threadpool(retrieve, body.session_id, body.query, body.top_k)
+        return {"query": body.query, "chunks": chunks}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── SSE streaming endpoint ────────────────────────────────────────────────────
+
+@app.post("/agent/stream")
+async def agent_stream(body: AgentChatRequest):
+    """
+    Server-Sent Events streaming endpoint.
+    Yields token-by-token output so the UI can display text as it generates.
+    Event types: meta | token | tool_start | tool_end | info | done | error
+    """
+    from agents.guardrails import run_input_guards, GuardRejection
+    from agents.orchestrator import stream_agent
+
+    # Input guards first (sync, fast)
+    try:
+        run_input_guards(body.message)
+    except GuardRejection as e:
+        _msg, _layer = e.message, e.layer
+        async def _reject():
+            yield f"data: {_json.dumps({'type': 'done', 'answer': _msg, 'agent_used': f'Guardrail ({_layer})', 'tools_called': []})}\n\n"
+        return StreamingResponse(_reject(), media_type="text/event-stream")
+
+    async def event_gen():
+        try:
+            async for event in stream_agent(body.session_id, body.message):
+                yield f"data: {_json.dumps(event)}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'type': 'error', 'message': str(e)[:200]})}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":               "no-cache",
+            "X-Accel-Buffering":           "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+# ── Eval: human feedback ──────────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    session_id:  str
+    question:    str
+    answer:      str
+    agent_used:  str = ""
+    tools_called: list = []
+    rating:      int          # 1 = thumbs up, -1 = thumbs down
+    comment:     str = ""
+
+@app.post("/eval/feedback")
+async def submit_feedback(body: FeedbackRequest):
+    """Store human rating on an agent response."""
+    if body.rating not in (1, -1):
+        raise HTTPException(status_code=400, detail="rating must be 1 or -1")
+    try:
+        from supabase import create_client
+        sb = create_client(
+            os.getenv("SUPABASE_URL", ""),
+            os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY", ""),
+        )
+        sb.table("eval_feedback").insert({
+            "session_id":  body.session_id,
+            "question":    body.question,
+            "answer":      body.answer,
+            "agent_used":  body.agent_used,
+            "tools_called": body.tools_called,
+            "rating":      body.rating,
+            "comment":     body.comment or None,
+        }).execute()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/eval/feedback/{session_id}")
+async def get_feedback(session_id: str):
+    """Get all feedback for a session."""
+    try:
+        from supabase import create_client
+        sb = create_client(
+            os.getenv("SUPABASE_URL", ""),
+            os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY", ""),
+        )
+        result = sb.table("eval_feedback") \
+            .select("*") \
+            .eq("session_id", session_id) \
+            .order("created_at", desc=True) \
+            .execute()
+        rows = result.data or []
+        thumbs_up   = sum(1 for r in rows if r["rating"] == 1)
+        thumbs_down = sum(1 for r in rows if r["rating"] == -1)
+        return {"session_id": session_id, "total": len(rows),
+                "thumbs_up": thumbs_up, "thumbs_down": thumbs_down, "feedback": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Eval: traces / observability ──────────────────────────────────────────────
+
+@app.get("/eval/traces/{session_id}")
+async def get_traces(session_id: str):
+    """Get recent agent traces (latency, model, cost) for a session."""
+    try:
+        from agents.tracer import get_traces, get_trace_summary
+        from fastapi.concurrency import run_in_threadpool
+        summary = await run_in_threadpool(get_trace_summary, session_id)
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

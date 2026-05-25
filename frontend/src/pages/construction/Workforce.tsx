@@ -1,261 +1,265 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AppState } from "../../App";
 
-const initialWorkers = [
-  { id:1, name:"Marcus Rivera", role:"Foreman",        trade:"Concrete", status:"On Site",  hours:8,   phone:"+1 555 0101" },
-  { id:2, name:"James Okafor",  role:"Carpenter",      trade:"Formwork", status:"On Site",  hours:7.5, phone:"+1 555 0102" },
-  { id:3, name:"Priya Nair",    role:"Safety Officer", trade:"HSE",      status:"On Site",  hours:8,   phone:"+1 555 0103" },
-  { id:4, name:"Carlos Mendez", role:"Ironworker",     trade:"Rebar",    status:"On Site",  hours:6,   phone:"+1 555 0104" },
-  { id:5, name:"Ahmed Hassan",  role:"Engineer",       trade:"MEP",      status:"Off Site", hours:0,   phone:"+1 555 0105" },
-  { id:6, name:"Sarah Kim",     role:"Surveyor",       trade:"Civil",    status:"On Site",  hours:8,   phone:"+1 555 0106" },
-  { id:7, name:"Tom Bradley",   role:"Operator",       trade:"Crane",    status:"Leave",    hours:0,   phone:"+1 555 0107" },
-];
-
-const trades = ["All","Concrete","Formwork","HSE","Rebar","MEP","Civil","Crane"];
-const statusColor: Record<string,string> = { "On Site":"#22d3a0", "Off Site":"#f59e0b", "Leave":"#8a9bb0" };
-const avatarColor: Record<string,string> = { "Concrete":"#00a8f0","Formwork":"#a78bfa","HSE":"#22d3a0","Rebar":"#38bfff","MEP":"#f59e0b","Civil":"#fbbf24","Crane":"#f43f5e" };
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const F = "'Outfit',sans-serif";
 const M = "'JetBrains Mono',monospace";
-const inp: React.CSSProperties = { width:"100%", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:7, padding:"8px 12px", color:"#f0f4f8", fontSize:13, fontFamily:F, outline:"none" };
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-const trendColor: Record<string,string> = { Improving:"#22d3a0", Stable:"#38bfff", Declining:"#f43f5e" };
-const recColor: Record<string,string>   = { keep:"#22d3a0", monitor:"#f59e0b", replace:"#f43f5e" };
+const TRADES = ["Concrete","Formwork","HSE","Rebar","MEP","Civil","Crane","Electrical","Plumbing","Carpentry","Steel","Other"];
+const ROLES = ["Foreman","Carpenter","Safety Officer","Ironworker","Engineer","Surveyor","Operator","Laborer","Superintendent","Inspector","Other"];
+const TRADE_COLOR: Record<string,string> = { Concrete:"#00a8f0",Formwork:"#a78bfa",HSE:"#22d3a0",Rebar:"#38bfff",MEP:"#f59e0b",Civil:"#fbbf24",Crane:"#f43f5e",Electrical:"#fb923c",Plumbing:"#34d399",Carpentry:"#818cf8",Steel:"#94a3b8",Other:"#64748b" };
+const STATUS_COLOR: Record<string,string> = { Active:"#22d3a0","On Leave":"#f59e0b",Inactive:"#f43f5e" };
 
-export default function Workforce({ appState }: { appState: AppState }) {
-  const [workers, setWorkers] = useState(initialWorkers);
-  const [filter, setFilter]   = useState("All");
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name:"", role:"", trade:"Concrete", phone:"" });
+const inp: React.CSSProperties = { width:"100%", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"9px 12px", color:"#f0f4f8", fontSize:13, fontFamily:"'Outfit',sans-serif", outline:"none", boxSizing:"border-box" };
 
-  // Subcontractor Scorecard state
-  const [scoreLoading, setScoreLoading] = useState(false);
-  const [scoreResult, setScoreResult]   = useState<any>(null);
-  const [scoreError, setScoreError]     = useState("");
-  const [showScorecard, setShowScorecard] = useState(false);
-
-  const filtered = filter === "All" ? workers : workers.filter(w => w.trade === filter);
-  const onSite   = workers.filter(w => w.status === "On Site").length;
-
-  const addWorker = () => {
-    if (!form.name) return;
-    setWorkers(p => [...p, { id:Date.now(), ...form, status:"Off Site", hours:0 }]);
-    setForm({ name:"", role:"", trade:"Concrete", phone:"" });
-    setShowForm(false);
-  };
-
-  const runScorecard = async () => {
-    setScoreLoading(true); setScoreError(""); setScoreResult(null); setShowScorecard(true);
-    try {
-      const res = await fetch(`${API_BASE}/construction/subcontractor-score`, {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ session_id: appState.sessionId, question: "" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Scorecard failed");
-      setScoreResult(data);
-    } catch (e: any) { setScoreError(e.message ?? "Failed"); }
-    finally { setScoreLoading(false); }
-  };
-
-  const ScoreBar = ({ value, color = "#38bfff" }: { value: number; color?: string }) => (
-    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-      <div style={{ flex:1, height:4, background:"rgba(255,255,255,0.07)", borderRadius:2 }}>
-        <div style={{ height:"100%", width:`${value}%`, background:color, borderRadius:2 }}/>
-      </div>
-      <span style={{ fontSize:11, fontFamily:M, color, minWidth:26, textAlign:"right" as const }}>{value}</span>
+function TabBar({ tabs, active, onChange }: { tabs:{id:string;label:string}[]; active:string; onChange:(s:string)=>void }) {
+  return (
+    <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:10, padding:4, marginBottom:24, width:"fit-content" }}>
+      {tabs.map(t => (
+        <button key={t.id} onClick={() => onChange(t.id)} style={{ padding:"7px 18px", borderRadius:7, border:"none", background:active===t.id?"rgba(0,168,240,0.15)":"transparent", color:active===t.id?"#38bfff":"rgba(255,255,255,0.38)", fontSize:13, fontWeight:active===t.id?600:400, cursor:"pointer", fontFamily:F, transition:"all 150ms" }}>
+          {t.label}
+        </button>
+      ))}
     </div>
   );
+}
+
+export default function Workforce({ appState }: { appState: AppState }) {
+  const [tab, setTab] = useState("construction");
+  const [workers, setWorkers] = useState<any[]>([]);
+  const [pmWorkers, setPmWorkers] = useState<any[]>([]);
+  const [filterTrade, setFilterTrade] = useState("All");
+  const [search, setSearch] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [editWorker, setEditWorker] = useState<any|null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name:"", role:"Foreman", trade:"Concrete", company:"", phone:"", email:"", status:"Active", start_date:"", daily_rate:"" });
+
+  useEffect(() => { load(); }, [appState.sessionId]);
+
+  const load = async () => {
+    if (!appState.sessionId) return;
+    try {
+      const r = await fetch(`${API}/construction/workers/${appState.sessionId}`);
+      if (r.ok) {
+        const data = await r.json();
+        setWorkers(data.filter((w:any) => !w.is_pm));
+        setPmWorkers(data.filter((w:any) => w.is_pm));
+      }
+    } catch {}
+  };
+
+  const openAdd = (isPM = false) => {
+    setEditWorker(null);
+    setForm({ name:"", role:isPM?"Property Manager":"Foreman", trade:isPM?"Management":"Concrete", company:"", phone:"", email:"", status:"Active", start_date:"", daily_rate:"" });
+    setShowModal(true);
+  };
+
+  const openEdit = (w: any) => {
+    setEditWorker(w);
+    setForm({ name:w.name||"", role:w.role||"", trade:w.trade||"", company:w.company||"", phone:w.phone||"", email:w.email||"", status:w.status||"Active", start_date:w.start_date||"", daily_rate:String(w.daily_rate||"") });
+    setShowModal(true);
+  };
+
+  const save = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    if (editWorker) {
+      const r = await fetch(`${API}/construction/workers/update`, {
+        method:"PUT", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ session_id: appState.sessionId, id: editWorker.id, ...form, daily_rate: parseFloat(form.daily_rate)||0 }),
+      });
+      if (r.ok) {
+        const updated = await r.json();
+        setWorkers(prev => prev.map(w => w.id === editWorker.id ? { ...w, ...updated } : w));
+        setPmWorkers(prev => prev.map(w => w.id === editWorker.id ? { ...w, ...updated } : w));
+      }
+    } else {
+      const r = await fetch(`${API}/construction/workers/create`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ session_id: appState.sessionId, ...form, daily_rate: parseFloat(form.daily_rate)||0 }),
+      });
+      if (r.ok) {
+        const newW = await r.json();
+        if (tab === "pm") setPmWorkers(prev => [newW, ...prev]);
+        else setWorkers(prev => [newW, ...prev]);
+      }
+    }
+    setSaving(false);
+    setShowModal(false);
+  };
+
+  const deleteWorker = async (w: any) => {
+    if (!confirm(`Remove ${w.name}?`)) return;
+    await fetch(`${API}/construction/workers/${appState.sessionId}/${w.id}`, { method:"DELETE" });
+    setWorkers(prev => prev.filter(x => x.id !== w.id));
+    setPmWorkers(prev => prev.filter(x => x.id !== w.id));
+  };
+
+  const displayWorkers = tab === "pm" ? pmWorkers : workers;
+  const filtered = displayWorkers.filter(w => {
+    const matchT = filterTrade === "All" || w.trade === filterTrade;
+    const matchS = (w.name||"").toLowerCase().includes(search.toLowerCase()) || (w.trade||"").toLowerCase().includes(search.toLowerCase()) || (w.role||"").toLowerCase().includes(search.toLowerCase());
+    return matchT && matchS;
+  });
+
+  const totalPayroll = workers.reduce((a,w) => a + (w.daily_rate||0), 0);
 
   return (
-    <div style={{ padding:"28px 32px", fontFamily:F, color:"#f0f4f8" }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+    <div style={{ padding:"28px 32px", fontFamily:F, color:"#f0f4f8", minHeight:"100%", background:"#0f1319" }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
+
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24 }}>
         <div>
-          <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:"-0.025em", marginBottom:3 }}>Workforce</h1>
-          <p style={{ color:"rgba(255,255,255,0.3)", fontSize:12, fontFamily:M }}><span style={{ color:"#22d3a0" }}>{onSite}</span> on site · {workers.length} total</p>
+          <h1 style={{ fontSize:20, fontWeight:800, letterSpacing:"-0.03em", margin:"0 0 4px" }}>Workforce</h1>
+          <p style={{ color:"rgba(255,255,255,0.35)", fontSize:13, margin:0 }}>Manage workers · Track trades · Supabase-persisted</p>
         </div>
-        <div style={{ display:"flex", gap:10 }}>
-          <button onClick={runScorecard} disabled={scoreLoading} style={{ background:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:"#fff", border:"none", borderRadius:8, padding:"9px 16px", fontSize:13, fontWeight:600, cursor:scoreLoading?"not-allowed":"pointer", fontFamily:F, display:"flex", alignItems:"center", gap:8 }}>
-            {scoreLoading
-              ? <><div style={{ width:13, height:13, borderRadius:"50%", border:"2px solid rgba(255,255,255,0.3)", borderTopColor:"#fff", animation:"spin 0.7s linear infinite" }}/> Scoring...</>
-              : <><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg> AI Scorecard</>
-            }
-          </button>
-          <button onClick={() => setShowForm(true)} style={{ background:"linear-gradient(135deg,#00a8f0,#0072b8)", color:"#fff", border:"none", borderRadius:8, padding:"9px 18px", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:F }}>+ Add Worker</button>
-        </div>
+        <button onClick={() => openAdd(tab === "pm")} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 18px", borderRadius:9, background:"linear-gradient(135deg,#00a8f0,#0054a0)", border:"none", color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:F }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
+          Add Worker
+        </button>
       </div>
 
-      {/* Summary cards */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
+      <TabBar tabs={[{id:"construction",label:"Site Workers"},{id:"pm",label:"PM Contractors"}]} active={tab} onChange={setTab} />
+
+      {/* Stats */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
         {[
-          { label:"On Site",           value:onSite,                                              color:"#22d3a0" },
-          { label:"Off Site",          value:workers.filter(w=>w.status==="Off Site").length,     color:"#f59e0b" },
-          { label:"On Leave",          value:workers.filter(w=>w.status==="Leave").length,        color:"#8a9bb0" },
-          { label:"Total Hours Today", value:workers.reduce((a,w)=>a+w.hours,0).toFixed(1),      color:"#38bfff" },
+          { label:tab==="pm"?"PM Staff":"Site Workers", value:(tab==="pm"?pmWorkers:workers).length, color:"#f0f4f8" },
+          { label:"Active", value:(tab==="pm"?pmWorkers:workers).filter(w=>w.status==="Active").length, color:"#22d3a0" },
+          { label:"On Leave", value:(tab==="pm"?pmWorkers:workers).filter(w=>w.status==="On Leave").length, color:"#f59e0b" },
+          { label:"Daily Payroll", value:`$${totalPayroll.toLocaleString()}`, color:"#a78bfa" },
         ].map(s => (
-          <div key={s.label} style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ fontSize:24, fontWeight:700, color:s.color, letterSpacing:"-0.03em", lineHeight:1 }}>{s.value}</div>
-            <div style={{ fontSize:12, color:"rgba(255,255,255,0.35)", marginTop:6 }}>{s.label}</div>
+          <div key={s.label} style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:"16px 18px" }}>
+            <div style={{ fontSize:10, fontFamily:M, color:"rgba(255,255,255,0.3)", letterSpacing:"0.08em", marginBottom:8 }}>{s.label.toUpperCase()}</div>
+            <div style={{ fontSize:26, fontWeight:800, color:s.color, letterSpacing:"-0.03em" }}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      {/* ── AI Subcontractor Scorecard ── */}
-      {showScorecard && (
-        <div style={{ background:"rgba(167,139,250,0.04)", border:"1px solid rgba(167,139,250,0.2)", borderRadius:12, padding:20, marginBottom:20 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-            <div>
-              <div style={{ fontSize:13, fontWeight:700, display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                <span style={{ fontSize:10, fontWeight:700, background:"rgba(167,139,250,0.15)", color:"#a78bfa", padding:"2px 7px", borderRadius:4, fontFamily:M, letterSpacing:"0.05em" }}>AI</span>
-                Subcontractor Performance Scorecard
-              </div>
-              <div style={{ fontSize:12, color:"rgba(255,255,255,0.35)" }}>AI analysis of subcontractor performance from daily reports, RFIs, and inspection records</div>
-            </div>
-            <button onClick={() => setShowScorecard(false)} style={{ background:"none", border:"none", color:"rgba(255,255,255,0.3)", cursor:"pointer", fontSize:18, padding:"0 4px" }}>✕</button>
-          </div>
+      {/* Controls */}
+      <div style={{ display:"flex", gap:10, marginBottom:16, alignItems:"center" }}>
+        <div style={{ position:"relative", flex:1, maxWidth:300 }}>
+          <svg style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", color:"rgba(255,255,255,0.3)" }} width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/><path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, trade, role…" style={{ width:"100%", paddingLeft:36, padding:"9px 12px 9px 36px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:8, color:"#f0f4f8", fontSize:13, outline:"none", fontFamily:F, boxSizing:"border-box" }}/>
+        </div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {["All", ...TRADES.slice(0,6)].map(t => (
+            <button key={t} onClick={() => setFilterTrade(t)} style={{ padding:"7px 12px", borderRadius:7, border:filterTrade===t?"1px solid rgba(0,168,240,0.3)":"1px solid rgba(255,255,255,0.08)", background:filterTrade===t?"rgba(0,168,240,0.12)":"transparent", color:filterTrade===t?"#38bfff":"rgba(255,255,255,0.4)", fontSize:12, cursor:"pointer", fontFamily:F }}>
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
 
-          {scoreLoading && (
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:12, padding:"32px 0", color:"rgba(255,255,255,0.4)", fontSize:13 }}>
-              <div style={{ width:24, height:24, borderRadius:"50%", border:"3px solid rgba(167,139,250,0.2)", borderTopColor:"#a78bfa", animation:"spin 0.8s linear infinite" }}/>
-              Analyzing subcontractor performance data...
-            </div>
-          )}
-
-          {scoreError && <div style={{ color:"#f43f5e", fontSize:13, padding:"8px 0" }}>{scoreError}</div>}
-
-          {scoreResult && !scoreLoading && (
-            <div>
-              {/* Overall score + summary */}
-              <div style={{ display:"flex", gap:20, alignItems:"center", padding:"14px 16px", background:"rgba(255,255,255,0.03)", borderRadius:10, marginBottom:16, border:"1px solid rgba(255,255,255,0.06)" }}>
-                <div style={{ width:64, height:64, borderRadius:"50%", border:`5px solid ${scoreResult.overall_project_performance >= 75 ? "#22d3a0" : scoreResult.overall_project_performance >= 50 ? "#f59e0b" : "#f43f5e"}`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                  <div style={{ fontSize:20, fontWeight:800, color:scoreResult.overall_project_performance >= 75 ? "#22d3a0" : "#f59e0b", lineHeight:1 }}>{scoreResult.overall_project_performance}</div>
-                  <div style={{ fontSize:9, color:"rgba(255,255,255,0.3)", fontFamily:M }}>/ 100</div>
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, color:"rgba(255,255,255,0.55)", lineHeight:1.65, marginBottom:8 }}>{scoreResult.summary}</div>
-                  <div style={{ display:"flex", gap:16, flexWrap:"wrap" as const }}>
-                    {scoreResult.top_performer && <span style={{ fontSize:12 }}>🏆 <span style={{ color:"#22d3a0", fontWeight:600 }}>{scoreResult.top_performer}</span> <span style={{ color:"rgba(255,255,255,0.35)" }}>Top Performer</span></span>}
-                    {scoreResult.attention_needed && <span style={{ fontSize:12 }}>⚠ <span style={{ color:"#f43f5e", fontWeight:600 }}>{scoreResult.attention_needed}</span> <span style={{ color:"rgba(255,255,255,0.35)" }}>Needs Attention</span></span>}
+      {/* Worker cards */}
+      {filtered.length === 0 ? (
+        <div style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:14, padding:"48px 20px", textAlign:"center", color:"rgba(255,255,255,0.2)", fontSize:13 }}>
+          {displayWorkers.length === 0 ? `No ${tab==="pm"?"PM contractors":"site workers"} added yet — click "Add Worker" to start.` : "No workers match the filter."}
+        </div>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:12 }}>
+          {filtered.map(w => {
+            const tc = TRADE_COLOR[w.trade] || "#64748b";
+            const sc = STATUS_COLOR[w.status] || "#64748b";
+            return (
+              <div key={w.id} style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:16, animation:"fadeUp 0.2s ease", transition:"border-color 150ms" }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor="rgba(255,255,255,0.15)")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor="rgba(255,255,255,0.07)")}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:36, height:36, borderRadius:9, background:`${tc}20`, border:`1px solid ${tc}40`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <span style={{ fontSize:14, fontWeight:700, color:tc }}>{(w.name||"?").charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:600 }}>{w.name}</div>
+                      <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", marginTop:1 }}>{w.role}</div>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:4 }}>
+                    <button onClick={() => openEdit(w)} style={{ width:26, height:26, borderRadius:6, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"rgba(255,255,255,0.4)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                    <button onClick={() => deleteWorker(w)} style={{ width:26, height:26, borderRadius:6, background:"rgba(244,63,94,0.08)", border:"1px solid rgba(244,63,94,0.15)", color:"#f43f5e", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
                   </div>
                 </div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
+                  <span style={{ fontSize:10, fontFamily:M, padding:"2px 7px", borderRadius:4, background:`${tc}15`, color:tc, border:`1px solid ${tc}25` }}>{w.trade}</span>
+                  <span style={{ fontSize:10, fontFamily:M, padding:"2px 7px", borderRadius:4, background:`${sc}15`, color:sc, border:`1px solid ${sc}25` }}>{w.status}</span>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                  {w.company && <div style={{ fontSize:11, color:"rgba(255,255,255,0.35)" }}>🏢 {w.company}</div>}
+                  {w.phone && <div style={{ fontSize:11, color:"rgba(255,255,255,0.35)" }}>📞 {w.phone}</div>}
+                  {w.email && <div style={{ fontSize:11, color:"rgba(255,255,255,0.35)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>✉️ {w.email}</div>}
+                  {w.daily_rate > 0 && <div style={{ fontSize:11, color:"#a78bfa", marginTop:2 }}>💰 ${w.daily_rate}/day</div>}
+                </div>
+                {w.id && <div style={{ fontSize:9, fontFamily:M, color:"rgba(255,255,255,0.15)", marginTop:8 }}>{w.id}</div>}
               </div>
+            );
+          })}
+        </div>
+      )}
 
-              {/* Sub cards */}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-                {scoreResult.subcontractors?.map((sub: any, i: number) => (
-                  <div key={i} style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:16 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                      <div>
-                        <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>{sub.name}</div>
-                        <div style={{ fontSize:11, color:"rgba(255,255,255,0.35)", fontFamily:M }}>{sub.trade}</div>
-                      </div>
-                      <div style={{ display:"flex", flex:"column", alignItems:"flex-end", gap:6 }}>
-                        <div style={{ fontSize:22, fontWeight:800, color:sub.overall_score >= 80 ? "#22d3a0" : sub.overall_score >= 65 ? "#f59e0b" : "#f43f5e", lineHeight:1 }}>{sub.overall_score}</div>
-                        <div style={{ display:"flex", gap:6, marginTop:4 }}>
-                          <span style={{ fontSize:10, fontWeight:600, color:trendColor[sub.trend] ?? "#38bfff", fontFamily:M }}>{sub.trend}</span>
-                          <span style={{ fontSize:10, fontWeight:600, color:recColor[sub.recommendation] ?? "#f59e0b", background:`${recColor[sub.recommendation] ?? "#f59e0b"}18`, padding:"1px 6px", borderRadius:3, fontFamily:M, textTransform:"uppercase" as const }}>{sub.recommendation}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Score breakdown */}
-                    {sub.scores && (
-                      <div style={{ marginBottom:12 }}>
-                        {Object.entries(sub.scores).map(([k, v]) => (
-                          <div key={k} style={{ display:"grid", gridTemplateColumns:"90px 1fr", alignItems:"center", gap:8, marginBottom:5 }}>
-                            <span style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"capitalize" as const }}>{k.replace(/_/g," ")}</span>
-                            <ScoreBar value={v as number} color={sub.overall_score >= 75 ? "#22d3a0" : sub.overall_score >= 60 ? "#38bfff" : "#f59e0b"} />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Strengths & Concerns */}
-                    {sub.strengths?.length > 0 && (
-                      <div style={{ marginBottom:8 }}>
-                        {sub.strengths.slice(0, 2).map((s: string, j: number) => (
-                          <div key={j} style={{ fontSize:11, color:"rgba(34,211,160,0.8)", padding:"2px 0" }}>✓ {s}</div>
-                        ))}
-                      </div>
-                    )}
-                    {sub.concerns?.length > 0 && (
-                      <div>
-                        {sub.concerns.slice(0, 2).map((c: string, j: number) => (
-                          <div key={j} style={{ fontSize:11, color:"rgba(244,63,94,0.8)", padding:"2px 0" }}>⚠ {c}</div>
-                        ))}
-                      </div>
-                    )}
+      {/* Modal */}
+      {showModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", backdropFilter:"blur(6px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200 }} onClick={() => setShowModal(false)}>
+          <div style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.1)", borderRadius:16, padding:32, width:520, boxShadow:"0 24px 80px rgba(0,0,0,0.6)" }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize:17, fontWeight:700, margin:"0 0 20px" }}>{editWorker ? "Edit Worker" : "Add Worker"}</h2>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                {[{k:"name",l:"Full Name",ph:"Name"},{k:"company",l:"Company",ph:"Company name"}].map(f => (
+                  <div key={f.k}>
+                    <label style={{ fontSize:10, fontFamily:M, color:"rgba(255,255,255,0.3)", letterSpacing:"0.1em", display:"block", marginBottom:5 }}>{f.l.toUpperCase()}</label>
+                    <input value={(form as any)[f.k]} onChange={e => setForm(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp}/>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Add worker form */}
-      {showForm && (
-        <div style={{ background:"rgba(0,168,240,0.05)", border:"1px solid rgba(0,168,240,0.2)", borderRadius:12, padding:20, marginBottom:16, display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr auto", gap:12, alignItems:"end" }}>
-          {[{k:"name",l:"Name",ph:"John Smith"},{k:"role",l:"Role",ph:"Carpenter"},{k:"phone",l:"Phone",ph:"+1 555 0100"}].map(f => (
-            <div key={f.k}><label style={{ fontSize:10, color:"rgba(255,255,255,0.3)", fontFamily:M, display:"block", marginBottom:6 }}>{f.l.toUpperCase()}</label><input value={(form as any)[f.k]} onChange={e => setForm(p => ({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp}/></div>
-          ))}
-          <div>
-            <label style={{ fontSize:10, color:"rgba(255,255,255,0.3)", fontFamily:M, display:"block", marginBottom:6 }}>TRADE</label>
-            <select value={form.trade} onChange={e => setForm(p => ({...p,trade:e.target.value}))} style={{...inp,cursor:"pointer"}}>
-              {trades.filter(t=>t!=="All").map(t => <option key={t}>{t}</option>)}
-            </select>
-          </div>
-          <div style={{ display:"flex", gap:8 }}>
-            <button onClick={addWorker} style={{ background:"linear-gradient(135deg,#00a8f0,#0072b8)", color:"#fff", border:"none", borderRadius:7, padding:"8px 16px", fontWeight:600, cursor:"pointer", fontFamily:F, fontSize:13 }}>Add</button>
-            <button onClick={() => setShowForm(false)} style={{ background:"rgba(255,255,255,0.05)", color:"rgba(255,255,255,0.4)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:7, padding:"8px 12px", cursor:"pointer", fontFamily:F, fontSize:13 }}>✕</button>
-          </div>
-        </div>
-      )}
-
-      {/* Trade filter chips */}
-      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" as const }}>
-        {trades.map(t => (
-          <button key={t} onClick={() => setFilter(t)} style={{ background:filter===t?"rgba(0,168,240,0.12)":"rgba(255,255,255,0.04)", border:`1px solid ${filter===t?"rgba(0,168,240,0.3)":"rgba(255,255,255,0.08)"}`, color:filter===t?"#38bfff":"rgba(255,255,255,0.4)", borderRadius:6, padding:"5px 12px", fontSize:12, cursor:"pointer", fontFamily:F, transition:"all 0.15s" }}>{t}</button>
-        ))}
-      </div>
-
-      {/* Worker table */}
-      <div style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, overflow:"hidden" }}>
-        <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead>
-            <tr style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
-              {["Name","Role","Trade","Status","Hours Today","Phone"].map(h => (
-                <th key={h} style={{ padding:"11px 16px", textAlign:"left" as const, fontSize:10, color:"rgba(255,255,255,0.3)", fontFamily:M, letterSpacing:"0.08em", fontWeight:500, background:"rgba(255,255,255,0.02)" }}>{h.toUpperCase()}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((w, i) => (
-              <tr key={w.id} style={{ borderBottom:i<filtered.length-1?"1px solid rgba(255,255,255,0.05)":"none", transition:"background 0.12s" }}
-                onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = "rgba(255,255,255,0.03)"}
-                onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = "transparent"}>
-                <td style={{ padding:"11px 16px" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                    <div style={{ width:28, height:28, borderRadius:"50%", background:`${avatarColor[w.trade]||"#00a8f0"}25`, border:`1px solid ${avatarColor[w.trade]||"#00a8f0"}40`, display:"flex", alignItems:"center", justifyContent:"center", color:avatarColor[w.trade]||"#00a8f0", fontSize:11, fontWeight:700, flexShrink:0 }}>{w.name.charAt(0)}</div>
-                    <span style={{ fontSize:13, fontWeight:500 }}>{w.name}</span>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ fontSize:10, fontFamily:M, color:"rgba(255,255,255,0.3)", letterSpacing:"0.1em", display:"block", marginBottom:5 }}>TRADE</label>
+                  <select value={form.trade} onChange={e => setForm(p=>({...p,trade:e.target.value}))} style={{ ...inp }}>
+                    {TRADES.map(t => <option key={t} style={{ background:"#1c2535" }}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, fontFamily:M, color:"rgba(255,255,255,0.3)", letterSpacing:"0.1em", display:"block", marginBottom:5 }}>ROLE</label>
+                  <select value={form.role} onChange={e => setForm(p=>({...p,role:e.target.value}))} style={{ ...inp }}>
+                    {ROLES.map(r => <option key={r} style={{ background:"#1c2535" }}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                {[{k:"phone",l:"Phone",ph:"+1 555-0000"},{k:"email",l:"Email",ph:"email@co.com"},{k:"daily_rate",l:"Daily Rate ($)",ph:"0"}].map(f => (
+                  <div key={f.k}>
+                    <label style={{ fontSize:10, fontFamily:M, color:"rgba(255,255,255,0.3)", letterSpacing:"0.1em", display:"block", marginBottom:5 }}>{f.l.toUpperCase()}</label>
+                    <input value={(form as any)[f.k]} onChange={e => setForm(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp}/>
                   </div>
-                </td>
-                <td style={{ padding:"11px 16px", fontSize:13, color:"rgba(255,255,255,0.5)" }}>{w.role}</td>
-                <td style={{ padding:"11px 16px" }}><span style={{ background:"rgba(255,255,255,0.05)", color:"rgba(255,255,255,0.45)", fontSize:11, padding:"2px 8px", borderRadius:4, fontFamily:M }}>{w.trade}</span></td>
-                <td style={{ padding:"11px 16px" }}>
-                  <span style={{ color:statusColor[w.status], fontSize:12, fontWeight:500, display:"flex", alignItems:"center", gap:5 }}>
-                    <span style={{ width:5, height:5, borderRadius:"50%", background:statusColor[w.status], display:"inline-block", boxShadow:w.status==="On Site"?"0 0 5px #22d3a0":"none" }}/>
-                    {w.status}
-                  </span>
-                </td>
-                <td style={{ padding:"11px 16px", fontSize:13, fontFamily:M, color:w.hours>0?"#f0f4f8":"rgba(255,255,255,0.2)" }}>{w.hours}h</td>
-                <td style={{ padding:"11px 16px", fontSize:12, color:"rgba(255,255,255,0.3)", fontFamily:M }}>{w.phone}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                ))}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ fontSize:10, fontFamily:M, color:"rgba(255,255,255,0.3)", letterSpacing:"0.1em", display:"block", marginBottom:5 }}>STATUS</label>
+                  <select value={form.status} onChange={e => setForm(p=>({...p,status:e.target.value}))} style={{ ...inp }}>
+                    {["Active","On Leave","Inactive"].map(s => <option key={s} style={{ background:"#1c2535" }}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, fontFamily:M, color:"rgba(255,255,255,0.3)", letterSpacing:"0.1em", display:"block", marginBottom:5 }}>START DATE</label>
+                  <input type="date" value={form.start_date} onChange={e => setForm(p=>({...p,start_date:e.target.value}))} style={inp}/>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:10, marginTop:4 }}>
+                <button onClick={() => setShowModal(false)} style={{ flex:1, padding:11, borderRadius:9, border:"1px solid rgba(255,255,255,0.1)", background:"transparent", color:"rgba(255,255,255,0.4)", fontSize:13, cursor:"pointer", fontFamily:F }}>Cancel</button>
+                <button onClick={save} disabled={saving} style={{ flex:2, padding:11, borderRadius:9, border:"none", background:"linear-gradient(135deg,#00a8f0,#0054a0)", color:"#fff", fontSize:13, fontWeight:600, cursor:saving?"not-allowed":"pointer", fontFamily:F, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                  {saving ? <><div style={{ width:13, height:13, borderRadius:"50%", border:"2px solid rgba(255,255,255,0.3)", borderTopColor:"#fff", animation:"spin 0.7s linear infinite" }}/> Saving…</> : editWorker ? "Save Changes" : "Add Worker"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

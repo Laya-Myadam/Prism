@@ -41,63 +41,11 @@ const BIC_COLOR: Record<string, string> = {
   Owner: "#22d3a0",
 };
 
-const DEMO: Submittal[] = [
-  {
-    id: "s1", number: "SUB-001", revision: "Rev 0", spec_section: "03 30 00",
-    title: "Cast-in-Place Concrete Mix Design",
-    description: "Structural concrete mix design for all slabs and columns. 5000 PSI design strength, fly ash replacement 20%.",
-    submitted_by: "BuildCorp General", reviewer: "Structural Engineer",
-    status: "Approved", submitted_date: "2025-05-01", required_date: "2025-05-15",
-    review_deadline: "2025-05-20", ball_in_court: "Contractor",
-    compliance_score: 96, flags: [],
-    ai_review: "Mix design meets ACI 318 requirements. Fly ash content within allowable limits per spec section 3.2. Water-cement ratio 0.42 is acceptable for exposure category. Approved without conditions.",
-  },
-  {
-    id: "s2", number: "SUB-002", revision: "Rev 1", spec_section: "08 11 13",
-    title: "Hollow Metal Doors & Frames — Shop Drawings",
-    description: "Shop drawings for all HM doors and frames on levels 1-3. Includes door schedule, frame details, and hardware cutouts.",
-    submitted_by: "Build-Right Doors", reviewer: "Architect",
-    status: "Revise & Resubmit", submitted_date: "2025-05-10", required_date: "2025-05-30",
-    review_deadline: "2025-05-25", ball_in_court: "Contractor",
-    compliance_score: 62, flags: ["Frame elevation detail missing for type HM-7", "Hardware prep for electric strike not shown on doors 205, 207"],
-    ai_review: "Submittal is generally acceptable but requires revision. Two critical omissions identified: frame elevation for type HM-7 not provided, and electric strike preps are absent on corridor doors. Resubmit with corrected sheets.",
-  },
-  {
-    id: "s3", number: "SUB-003", revision: "Rev 0", spec_section: "09 51 13",
-    title: "Acoustic Ceiling Tile — Product Data",
-    description: "Armstrong Optima 1224 ceiling tile, NRC 0.75, CAC 35. Product data sheets and environmental certification.",
-    submitted_by: "Interior Finishes Co.", reviewer: "Architect",
-    status: "Under Review", submitted_date: "2025-05-18", required_date: "2025-06-01",
-    review_deadline: "2025-06-05", ball_in_court: "Architect",
-    compliance_score: 0,
-    flags: [],
-  },
-  {
-    id: "s4", number: "SUB-004", revision: "Rev 0", spec_section: "26 05 19",
-    title: "Electrical Conductors — Wire & Cable Product Data",
-    description: "Southwire 600V copper conductors, THHN/THWN-2, UL listed. Sizes #14 AWG through 4/0 AWG.",
-    submitted_by: "Volt Electric", reviewer: "Electrical Engineer",
-    status: "Submitted", submitted_date: "2025-05-22", required_date: "2025-06-10",
-    review_deadline: "2025-06-08", ball_in_court: "Engineer",
-    compliance_score: 0,
-    flags: [],
-  },
-  {
-    id: "s5", number: "SUB-005", revision: "Rev 0", spec_section: "23 05 13",
-    title: "HVAC Ductwork — Shop Drawings",
-    description: "Sheet metal ductwork shop drawings for Floors 2-4 including supply, return, and exhaust systems.",
-    submitted_by: "AirTech Mechanical", reviewer: "MEP Engineer",
-    status: "Pending Submission", submitted_date: "", required_date: "2025-06-20",
-    review_deadline: "2025-06-28", ball_in_court: "Contractor",
-    compliance_score: 0,
-    flags: [],
-  },
-];
 
 const STATUSES: SubmittalStatus[] = ["Pending Submission", "Submitted", "Under Review", "Revise & Resubmit", "Approved", "Approved as Noted", "Rejected"];
 
 export default function Submittals({ appState }: { appState: AppState }) {
-  const [items, setItems] = useState<Submittal[]>(DEMO);
+  const [items, setItems] = useState<Submittal[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -112,7 +60,7 @@ export default function Submittals({ appState }: { appState: AppState }) {
     if (!appState.sessionId) return;
     fetch(`${BASE}/construction/submittals/${appState.sessionId}`)
       .then(r => r.json())
-      .then(d => { if (Array.isArray(d) && d.length > 0) setItems(d); })
+      .then(d => { if (Array.isArray(d)) setItems(d); })
       .catch(() => {});
   }, [appState.sessionId]);
 

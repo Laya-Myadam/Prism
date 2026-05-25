@@ -22,6 +22,12 @@ import PunchList from "./pages/construction/PunchList";
 import Submittals from "./pages/construction/Submittals";
 import DailyLog from "./pages/construction/DailyLog";
 import KnowledgeGraph from "./pages/construction/KnowledgeGraph";
+import LeaseAbstraction from "./pages/property/LeaseAbstraction";
+import Approvals from "./pages/property/Approvals";
+import TenantRisk from "./pages/property/TenantRisk";
+import NOIForecaster from "./pages/property/NOIForecaster";
+import MaintenanceOrders from "./pages/property/MaintenanceOrders";
+import CAMReconciliation from "./pages/property/CAMReconciliation";
 
 export type AppUser = {
   uid: string;
@@ -87,6 +93,12 @@ function AppShell({ appState }: { appState: AppState }) {
             <Route path="/submittals" element={<Submittals appState={appState} />} />
             <Route path="/daily-log" element={<DailyLog appState={appState} />} />
             <Route path="/knowledge-graph" element={<KnowledgeGraph appState={appState} />} />
+            <Route path="/pm-leases"      element={<LeaseAbstraction appState={appState} />} />
+            <Route path="/pm-tenants"     element={<TenantRisk appState={appState} />} />
+            <Route path="/pm-noi"         element={<NOIForecaster appState={appState} />} />
+            <Route path="/pm-maintenance" element={<MaintenanceOrders appState={appState} />} />
+            <Route path="/pm-cam"         element={<CAMReconciliation appState={appState} />} />
+            <Route path="/pm-approvals"   element={<Approvals appState={appState} />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>

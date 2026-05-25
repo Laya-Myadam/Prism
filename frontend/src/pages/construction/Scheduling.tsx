@@ -1,17 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AppState } from "../../App";
 
-const initialTasks = [
-  { id:1, name:"Site Preparation",           phase:"Foundation", start:0,  duration:10, progress:100, assignee:"Marcus R.", status:"Done",        priority:"high"   },
-  { id:2, name:"Excavation & Grading",        phase:"Foundation", start:8,  duration:14, progress:100, assignee:"Carlos M.", status:"Done",        priority:"high"   },
-  { id:3, name:"Foundation Concrete Pour",    phase:"Foundation", start:20, duration:12, progress:75,  assignee:"Marcus R.", status:"In Progress", priority:"high"   },
-  { id:4, name:"Rebar Installation — Level 1",phase:"Structure",  start:30, duration:10, progress:40,  assignee:"Carlos M.", status:"In Progress", priority:"high"   },
-  { id:5, name:"Formwork — Level 1",          phase:"Structure",  start:32, duration:8,  progress:20,  assignee:"James O.",  status:"In Progress", priority:"medium" },
-  { id:6, name:"MEP Rough-In",                phase:"MEP",        start:40, duration:20, progress:0,   assignee:"Ahmed H.",  status:"Upcoming",    priority:"medium" },
-  { id:7, name:"Waterproofing",               phase:"Envelope",   start:45, duration:8,  progress:0,   assignee:"TBD",       status:"Upcoming",    priority:"medium" },
-  { id:8, name:"Safety Audit",                phase:"HSE",        start:35, duration:3,  progress:0,   assignee:"Priya N.",  status:"Overdue",     priority:"high"   },
-  { id:9, name:"Owner Walkthrough",           phase:"Milestone",  start:60, duration:1,  progress:0,   assignee:"All",       status:"Upcoming",    priority:"low"    },
-];
 
 const phases = ["All","Foundation","Structure","MEP","Envelope","HSE","Milestone"];
 const statusColor: Record<string,string> = { "Done":"#22d3a0", "In Progress":"#38bfff", "Upcoming":"#8a9bb0", "Overdue":"#f43f5e" };
@@ -22,7 +11,7 @@ const inp: React.CSSProperties = { width:"100%", background:"rgba(255,255,255,0.
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function Scheduling({ appState }: { appState: AppState }) {
-  const [tasks, setTasks] = useState(initialTasks);
+  const [tasks, setTasks] = useState<any[]>([]);
   const [filter, setFilter] = useState("All");
   const [view, setView] = useState<"list"|"gantt">("list");
   const [showForm, setShowForm] = useState(false);
@@ -40,13 +29,54 @@ export default function Scheduling({ appState }: { appState: AppState }) {
   const [optError, setOptError] = useState("");
   const [showOpt, setShowOpt] = useState(false);
 
+  useEffect(() => { loadTasks(); }, [appState.sessionId]);
+
+  const loadTasks = async () => {
+    if (!appState.sessionId) return;
+    try {
+      const r = await fetch(`${API_BASE}/construction/schedule/${appState.sessionId}`);
+      if (r.ok) {
+        const data = await r.json();
+        setTasks(data.map((t: any) => ({ ...t, id: t.id, start: t.start_day ?? 0 })));
+      }
+    } catch {}
+  };
+
   const filtered = filter === "All" ? tasks : tasks.filter(t => t.phase === filter);
   const totalDays = Math.max(...tasks.map(t => t.start + t.duration));
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!form.name) return;
-    setTasks(p => [...p, { id:Date.now(), name:form.name, phase:form.phase, start:0, duration:parseInt(form.duration), progress:0, assignee:form.assignee, status:"Upcoming", priority:form.priority }]);
+    const nextStart = tasks.length > 0 ? Math.max(...tasks.map(t => t.start + t.duration)) : 0;
+    try {
+      const r = await fetch(`${API_BASE}/construction/schedule/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: appState.sessionId, name: form.name, phase: form.phase,
+          start_day: nextStart, duration: parseInt(form.duration) || 7,
+          progress: 0, assignee: form.assignee, status: "Upcoming", priority: form.priority,
+        }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        setTasks(p => [...p, { ...data, start: data.start_day ?? nextStart }]);
+      } else {
+        setTasks(p => [...p, { id: Date.now(), name: form.name, phase: form.phase, start: nextStart, duration: parseInt(form.duration) || 7, progress: 0, assignee: form.assignee, status: "Upcoming", priority: form.priority }]);
+      }
+    } catch {
+      setTasks(p => [...p, { id: Date.now(), name: form.name, phase: form.phase, start: nextStart, duration: parseInt(form.duration) || 7, progress: 0, assignee: form.assignee, status: "Upcoming", priority: form.priority }]);
+    }
     setShowForm(false);
+  };
+
+  const updateTaskStatus = async (id: string | number, status: string) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+    try {
+      await fetch(`${API_BASE}/construction/schedule/update`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: appState.sessionId, id: String(id), status }),
+      });
+    } catch {}
   };
 
   // Natural Language Task
@@ -291,7 +321,12 @@ export default function Scheduling({ appState }: { appState: AppState }) {
                       <span style={{ fontSize:10, color:"rgba(255,255,255,0.35)", fontFamily:M, minWidth:28 }}>{t.progress}%</span>
                     </div>
                   </td>
-                  <td style={{ padding:"11px 16px" }}><span style={{ color:statusColor[t.status], fontSize:12, fontWeight:500 }}>{t.status}</span></td>
+                  <td style={{ padding:"11px 16px" }}>
+                    <select value={t.status} onChange={e => updateTaskStatus(t.id, e.target.value)}
+                      style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:6, padding:"4px 7px", color:statusColor[t.status], fontSize:11, fontFamily:F, cursor:"pointer", fontWeight:500 }}>
+                      {["Upcoming","In Progress","Done","Overdue"].map(s => <option key={s} style={{ background:"#1c2535", color:"#f0f4f8" }}>{s}</option>)}
+                    </select>
+                  </td>
                   <td style={{ padding:"11px 16px" }}><span style={{ color:priorityColor[t.priority], fontSize:11 }}>● {t.priority}</span></td>
                 </tr>
               ))}

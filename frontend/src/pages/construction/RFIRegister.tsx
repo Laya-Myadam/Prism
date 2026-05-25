@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { AppState } from "../../App";
+import MaintenanceOrders from "../property/MaintenanceOrders";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const F = "'Outfit',sans-serif";
@@ -29,7 +30,18 @@ const dueIn = (days: number) => {
   return d.toISOString().split("T")[0];
 };
 
+const TabBar = ({ active, onChange }: { active: string; onChange: (s: string) => void }) => (
+  <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:10, padding:4, marginBottom:24, width:"fit-content" }}>
+    {[{id:"construction",label:"Construction RFIs"},{id:"pm",label:"Maintenance Requests"}].map(t => (
+      <button key={t.id} onClick={() => onChange(t.id)} style={{ padding:"7px 18px", borderRadius:7, border:"none", background:active===t.id?"rgba(0,168,240,0.15)":"transparent", color:active===t.id?"#38bfff":"rgba(255,255,255,0.38)", fontSize:13, fontWeight:active===t.id?600:400, cursor:"pointer", fontFamily:F, transition:"all 150ms" }}>
+        {t.label}
+      </button>
+    ))}
+  </div>
+);
+
 export default function RFIRegister({ appState }: { appState: AppState }) {
+  const [tab, setTab] = useState("construction");
   const [rfis, setRfis] = useState<RFI[]>([]);
   const [filter, setFilter] = useState<"All"|"Open"|"Overdue"|"Closed">("All");
   const [search, setSearch] = useState("");
@@ -94,6 +106,13 @@ export default function RFIRegister({ appState }: { appState: AppState }) {
         / rfis.filter(r => r.date_responded).length).toFixed(1)
     : "—";
 
+  if (tab === "pm") return (
+    <div style={{ fontFamily: F }}>
+      <div style={{ padding:"28px 32px 0" }}><TabBar active={tab} onChange={setTab} /></div>
+      <MaintenanceOrders appState={appState} />
+    </div>
+  );
+
   return (
     <div style={{ padding: "28px 32px", fontFamily: F, color: "#f0f4f8", minHeight: "100%", background: "#0f1319" }}>
       <style>{`
@@ -103,6 +122,7 @@ export default function RFIRegister({ appState }: { appState: AppState }) {
         .rfi-action-btn:hover { opacity: 1 !important; }
       `}</style>
 
+      <TabBar active={tab} onChange={setTab} />
       {/* Header */}
       <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:28 }}>
         <div>

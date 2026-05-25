@@ -4,11 +4,26 @@ backend/.env
 backend/data/
 backend/__pycache__/
 backend/**/__pycache__/
+backend/uploads/
+
+# RAG / vector store artifacts
+backend/agents/rag/__pycache__/
+backend/agents/**/__pycache__/
+*.faiss
+*.pkl
+
+# Eval output
+backend/eval/results/
+backend/eval/*.json.out
+
+# LangSmith / tracing local cache
+.langsmith/
 
 # Frontend
 frontend/node_modules/
 frontend/dist/
 frontend/.firebase/
+frontend/.env.local
 
 # Python
 __pycache__/
@@ -29,3 +44,7 @@ Thumbs.db
 # Secrets / local config
 *.env.local
 .env.local
+.env.production.local
+
+# Local MCP config (has machine-specific paths)
+backend/claude_desktop_config.json

@@ -19,6 +19,12 @@ const pageTitles: Record<string, { title: string; sub: string }> = {
   "/submittals":    { title: "Submittals",            sub: "Ball-in-court · AI pre-review · Compliance scoring" },
   "/daily-log":       { title: "Daily Log",         sub: "Site activity · AI narrative · Delay claim detection" },
   "/knowledge-graph": { title: "Knowledge Graph",  sub: "Project entities · Relationships · Connected intelligence" },
+  "/pm-leases":      { title: "Lease Abstraction",   sub: "AI extracts key terms from any lease PDF" },
+  "/pm-tenants":     { title: "Tenant Risk Scoring",  sub: "AI creditworthiness scoring · Financial risk assessment" },
+  "/pm-noi":         { title: "NOI Forecaster",       sub: "Net Operating Income · Cap Rate · AI performance insights" },
+  "/pm-maintenance": { title: "Maintenance Orders",   sub: "Work order tracking · AI diagnosis · Vendor assignment" },
+  "/pm-cam":         { title: "CAM Reconciliation",   sub: "Pro-rata CAM allocation · Cap enforcement · AI summary" },
+  "/pm-approvals":   { title: "Approval Queue",        sub: "Human guardrails · Supervisor sign-off · Audit trail" },
 };
 
 export default function Navbar({ appState }: { appState: AppState }) {

@@ -33,12 +33,19 @@ function urgencyLabel(days: number, completed: boolean): { text: string; color: 
 }
 
 export default function Obligations({ appState }: { appState: AppState }) {
+  const [tab, setTab] = useState("construction");
+  const [leases, setLeases] = useState<any[]>([]);
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(false);
   const [extracted, setExtracted] = useState(false);
 
-  useEffect(() => { load(); }, [appState.sessionId]);
+  useEffect(() => {
+    load();
+    if (appState.sessionId) {
+      fetch(`${API}/pm/lease/${appState.sessionId}`).then(r => r.ok ? r.json() : []).then(setLeases).catch(() => {});
+    }
+  }, [appState.sessionId]);
 
   const load = async () => {
     if (!appState.sessionId) return;
@@ -75,8 +82,60 @@ export default function Obligations({ appState }: { appState: AppState }) {
   const upcoming = obligations.filter(o => !o.completed && o.days_from_now > 7);
   const completed = obligations.filter(o => o.completed);
 
+  const ObTabBar = () => (
+    <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:10, padding:4, marginBottom:24, width:"fit-content" }}>
+      {[{id:"construction",label:"Contract Obligations"},{id:"pm",label:"Lease Obligations"}].map(t => (
+        <button key={t.id} onClick={() => setTab(t.id)} style={{ padding:"7px 18px", borderRadius:7, border:"none", background:tab===t.id?"rgba(0,168,240,0.15)":"transparent", color:tab===t.id?"#38bfff":"rgba(255,255,255,0.38)", fontSize:13, fontWeight:tab===t.id?600:400, cursor:"pointer", fontFamily:F, transition:"all 150ms" }}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (tab === "pm") return (
+    <div style={{ padding:"28px 32px", fontFamily:F, color:"#f0f4f8", minHeight:"100%", background:"#0f1319" }}>
+      <ObTabBar />
+      <div style={{ marginBottom:20 }}>
+        <h2 style={{ fontSize:16, fontWeight:700, margin:"0 0 4px" }}>Lease Obligations</h2>
+        <p style={{ color:"rgba(255,255,255,0.35)", fontSize:13, margin:0 }}>Key obligations extracted from abstracted leases.</p>
+      </div>
+      {leases.length === 0 ? (
+        <div style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:"48px 20px", textAlign:"center", color:"rgba(255,255,255,0.2)", fontSize:13 }}>
+          No leases abstracted yet — go to Lease Abstraction to upload lease documents.
+        </div>
+      ) : leases.map(l => (
+        <div key={l.id} style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:16, marginBottom:10 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:600 }}>{l.tenant_name || "Unknown Tenant"} — {l.property_address}</div>
+              <div style={{ fontSize:11, color:"rgba(255,255,255,0.35)", fontFamily:M, marginTop:2 }}>{l.lease_start} → {l.lease_end}</div>
+            </div>
+            <div style={{ fontSize:13, fontWeight:700, color:"#a78bfa" }}>${(l.monthly_rent||0).toLocaleString()}/mo</div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
+            {[
+              { label:"Rent Escalation", value:l.rent_escalation||"—", color:"#f59e0b" },
+              { label:"CAM Cap", value:l.cam_cap||"—", color:"#38bfff" },
+              { label:"Renewal Options", value:l.renewal_options||"—", color:"#22d3a0" },
+              { label:"Termination", value:l.termination_clause||"—", color:"#f43f5e" },
+              { label:"TI Allowance", value:l.ti_allowance?`$${l.ti_allowance.toLocaleString()}`:"—", color:"#a78bfa" },
+              { label:"Permitted Use", value:l.permitted_use||"—", color:"rgba(255,255,255,0.5)" },
+            ].map(ob => (
+              <div key={ob.label} style={{ background:"rgba(255,255,255,0.02)", borderRadius:8, padding:"10px 12px" }}>
+                <div style={{ fontSize:10, fontFamily:M, color:"rgba(255,255,255,0.3)", letterSpacing:"0.08em", marginBottom:4 }}>{ob.label.toUpperCase()}</div>
+                <div style={{ fontSize:12, color:ob.color, fontWeight:500 }}>{ob.value}</div>
+              </div>
+            ))}
+          </div>
+          {l.ai_summary && <div style={{ marginTop:10, fontSize:12, color:"rgba(255,255,255,0.5)", lineHeight:1.6, fontStyle:"italic" }}>{l.ai_summary}</div>}
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div style={{ padding:"28px 32px", fontFamily:F, color:"#f0f4f8", minHeight:"100%", background:"#0f1319" }}>
+      <ObTabBar />
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-3px)} 40%,80%{transform:translateX(3px)} }

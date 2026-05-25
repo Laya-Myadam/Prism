@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AppState } from "../../App";
+
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function Settings({ appState }: { appState: AppState }) {
   const [form, setForm] = useState({
@@ -13,6 +15,21 @@ export default function Settings({ appState }: { appState: AppState }) {
   });
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    if (!appState.user?.uid) return;
+    fetch(`${API}/user/settings/${appState.user.uid}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d) setForm(prev => ({
+          ...prev,
+          notifications: d.notifications ?? true,
+          autoRisk: d.auto_risk ?? true,
+          emailAlerts: d.email_alerts ?? false,
+        }));
+      })
+      .catch(() => {});
+  }, [appState.user?.uid]);
+
   const roles = ["Project Manager","Site Engineer","Architect","Quantity Surveyor","Safety Officer","Director"];
   const F = "'Outfit',sans-serif";
   const M = "'JetBrains Mono',monospace";
@@ -24,10 +41,22 @@ export default function Settings({ appState }: { appState: AppState }) {
   const focusIn = (e: any) => { e.target.style.borderColor="rgba(0,168,240,0.5)"; e.target.style.boxShadow="0 0 0 3px rgba(0,168,240,0.1)"; };
   const focusOut = (e: any) => { e.target.style.borderColor="rgba(255,255,255,0.1)"; e.target.style.boxShadow="none"; };
 
-  const save = () => {
+  const save = async () => {
     if (!appState.user) return;
     const updated = { ...appState.user, name: form.name, company: form.company, role: form.role };
     appState.setUser(updated);
+    try {
+      await fetch(`${API}/user/settings/save`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: appState.user.uid,
+          session_id: appState.sessionId,
+          notifications: form.notifications,
+          auto_risk: form.autoRisk,
+          email_alerts: form.emailAlerts,
+        }),
+      });
+    } catch {}
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };

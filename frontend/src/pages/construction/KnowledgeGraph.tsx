@@ -174,6 +174,7 @@ export default function KnowledgeGraph({ appState }: Props) {
         ]);
 
         const db = dashboard.status === "fulfilled" ? dashboard.value : null;
+        const facts = db?.facts || db || {};
         const rfiList: any[] = rfis.status === "fulfilled" ? (rfis.value || []) : [];
         const coList: any[]  = cos.status === "fulfilled"  ? (cos.value  || []) : [];
         const oblList: any[] = obligations.status === "fulfilled" ? (obligations.value || []) : [];
@@ -186,16 +187,16 @@ export default function KnowledgeGraph({ appState }: Props) {
           id: "project", type: "custom", position: { x: 400, y: 20 },
           data: {
             type: "project", icon: "◈",
-            label: db?.project_name || "Your Project",
-            sub: `${db?.contract_value || ""} · ${db?.completion_date || ""}`.replace(/^ · | · $/, ""),
+            label: facts?.project_name || "Your Project",
+            sub: `${facts?.project_value || ""} · ${facts?.completion_date || ""}`.replace(/^ · | · $/, ""),
           },
         });
 
         // Parties
         const parties = [
-          { id: "owner", label: db?.owner || "Owner", sub: "Owner", icon: "🏢" },
-          { id: "gc",    label: db?.gc    || "General Contractor", sub: "General Contractor", icon: "🏗️" },
-          { id: "arch",  label: db?.architect || "Architect", sub: "Architect", icon: "📐" },
+          { id: "owner", label: facts?.owner || "Owner", sub: "Owner", icon: "🏢" },
+          { id: "gc",    label: facts?.general_contractor || "General Contractor", sub: "General Contractor", icon: "🏗️" },
+          { id: "arch",  label: facts?.architect || "Architect", sub: "Architect", icon: "📐" },
         ].filter(p => p.label && p.label !== "Unknown");
 
         parties.forEach((p, i) => {
@@ -204,7 +205,7 @@ export default function KnowledgeGraph({ appState }: Props) {
         });
 
         // Contract document node
-        liveNodes.push({ id: "contract", type: "custom", position: { x: 80, y: 360 }, data: { type: "document", icon: "📄", label: "Prime Contract", sub: db?.contract_value || "" } });
+        liveNodes.push({ id: "contract", type: "custom", position: { x: 80, y: 360 }, data: { type: "document", icon: "📄", label: "Prime Contract", sub: facts?.project_value || "" } });
         liveEdges.push({ id: "e-gc-contract", source: "gc", target: "contract", style: { stroke: "#a855f7", strokeWidth: 1.5 } });
 
         // RFI nodes (max 6)
@@ -238,6 +239,18 @@ export default function KnowledgeGraph({ appState }: Props) {
             data: { type: "obligation", icon: "📅", label: obl.description || obl.title || `Obligation ${i+1}`, sub: obl.due_date || "", badge: obl.completed ? "Done" : "Active" },
           });
           liveEdges.push({ id: `e-contract-${id}`, source: "contract", target: id, style: { stroke: "#eab308", strokeWidth: 1.5 } });
+        });
+
+        // Risk nodes from dashboard
+        const risks = db?.risks || [];
+        risks.slice(0, 3).forEach((risk: any, i: number) => {
+          const id = `risk-live-${i}`;
+          liveNodes.push({
+            id, type: "custom",
+            position: { x: 700 + i * 0, y: 540 + i * 160 },
+            data: { type: "risk", icon: "⚠️", label: risk.title || `Risk ${i+1}`, sub: risk.source || "", badge: risk.severity || "High" },
+          });
+          liveEdges.push({ id: `e-contract-${id}`, source: "contract", target: id, animated: true, style: { stroke: "#ef4444", strokeWidth: 1.5 } });
         });
 
         if (liveNodes.length > 1) {

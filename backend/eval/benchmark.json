@@ -1,0 +1,142 @@
+[
+  {
+    "id": "B001",
+    "question": "What happened on site today?",
+    "expected_agent": "site_ops",
+    "expected_tools": ["get_daily_logs"],
+    "expected_keywords": ["date", "weather", "crew", "work"]
+  },
+  {
+    "id": "B002",
+    "question": "How many workers were on site?",
+    "expected_agent": "site_ops",
+    "expected_tools": ["get_daily_logs"],
+    "expected_keywords": ["crew", "workers", "labor"]
+  },
+  {
+    "id": "B003",
+    "question": "What is the current project status?",
+    "expected_agent": "site_ops",
+    "expected_tools": ["get_projects"],
+    "expected_keywords": ["project", "status", "completion"]
+  },
+  {
+    "id": "B004",
+    "question": "Any weather delays recorded?",
+    "expected_agent": "site_ops",
+    "expected_tools": ["get_daily_logs", "get_weather_risk"],
+    "expected_keywords": ["weather", "delay", "rain"]
+  },
+  {
+    "id": "B005",
+    "question": "Show me all open RFIs",
+    "expected_agent": "rfi",
+    "expected_tools": ["get_rfis"],
+    "expected_keywords": ["rfi", "open", "status"]
+  },
+  {
+    "id": "B006",
+    "question": "What change orders are pending approval?",
+    "expected_agent": "rfi",
+    "expected_tools": ["get_change_orders"],
+    "expected_keywords": ["change order", "pending", "approval"]
+  },
+  {
+    "id": "B007",
+    "question": "List all contract obligations",
+    "expected_agent": "rfi",
+    "expected_tools": ["get_obligations"],
+    "expected_keywords": ["obligation", "due", "responsible"]
+  },
+  {
+    "id": "B008",
+    "question": "What submittals are under review?",
+    "expected_agent": "rfi",
+    "expected_tools": ["get_submittals"],
+    "expected_keywords": ["submittal", "review", "status"]
+  },
+  {
+    "id": "B009",
+    "question": "What tasks are overdue?",
+    "expected_agent": "schedule",
+    "expected_tools": ["get_overdue_tasks"],
+    "expected_keywords": ["overdue", "task", "progress"]
+  },
+  {
+    "id": "B010",
+    "question": "What is the overall project completion percentage?",
+    "expected_agent": "schedule",
+    "expected_tools": ["get_schedule"],
+    "expected_keywords": ["completion", "progress", "percent"]
+  },
+  {
+    "id": "B011",
+    "question": "Any critical punch list items open?",
+    "expected_agent": "schedule",
+    "expected_tools": ["get_punch_list"],
+    "expected_keywords": ["punch", "critical", "open"]
+  },
+  {
+    "id": "B012",
+    "question": "Show the project schedule and timeline",
+    "expected_agent": "schedule",
+    "expected_tools": ["get_schedule"],
+    "expected_keywords": ["phase", "task", "schedule"]
+  },
+  {
+    "id": "B013",
+    "question": "Analyze weather impact and delay claim potential",
+    "expected_agent": "risk",
+    "expected_tools": ["get_weather_risk", "get_daily_logs"],
+    "expected_keywords": ["weather", "delay", "claim", "risk"]
+  },
+  {
+    "id": "B014",
+    "question": "What are the main risks on this project?",
+    "expected_agent": "risk",
+    "expected_tools": ["get_weather_risk", "get_overdue_tasks"],
+    "expected_keywords": ["risk", "weather", "overdue"]
+  },
+  {
+    "id": "B015",
+    "question": "Are there any compliance issues?",
+    "expected_agent": "risk",
+    "expected_tools": ["get_rfis", "get_obligations"],
+    "expected_keywords": ["compliance", "obligation", "rfi"]
+  },
+  {
+    "id": "B016",
+    "question": "Which tenants are high risk?",
+    "expected_agent": "property",
+    "expected_tools": ["get_tenant_risk_summary"],
+    "expected_keywords": ["tenant", "risk", "high"]
+  },
+  {
+    "id": "B017",
+    "question": "What is the NOI for this property?",
+    "expected_agent": "property",
+    "expected_tools": ["get_noi_reports"],
+    "expected_keywords": ["noi", "property", "rent"]
+  },
+  {
+    "id": "B018",
+    "question": "Any pending maintenance orders?",
+    "expected_agent": "property",
+    "expected_tools": ["get_maintenance"],
+    "expected_keywords": ["maintenance", "open", "unit"]
+  },
+  {
+    "id": "B019",
+    "question": "Show CAM reconciliation summary",
+    "expected_agent": "property",
+    "expected_tools": ["get_cam_reconciliations"],
+    "expected_keywords": ["cam", "property", "tenant"]
+  },
+  {
+    "id": "B020",
+    "question": "Show all active leases",
+    "expected_agent": "property",
+    "expected_tools": ["get_leases"],
+    "expected_keywords": ["lease", "tenant", "rent"]
+  }
+]

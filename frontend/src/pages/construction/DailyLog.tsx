@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { AppState } from "../../App";
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -34,60 +34,69 @@ const WEATHER_COLORS: Record<string, string> = {
   Rain: "#00a8f0", "Heavy Rain": "#f43f5e", Wind: "#eab308", "Extreme Heat": "#f97316", Fog: "rgba(255,255,255,0.35)",
 };
 
-const DEMO_LOGS: DailyLogEntry[] = [
-  {
-    id: "dl1", date: "2025-05-28",
-    weather: "Clear", temp_high: "82°F", temp_low: "65°F",
-    crew_count: 34, labor_hours: 272,
-    work_performed: "Completed Level 3 slab pour (2,400 SF). Installed conduit runs in north wing. Framing crew completed exterior stud walls on east elevation. Mechanical crew roughed in supply ductwork for zones 3A-3D.",
-    delays: "None reported.",
-    equipment: "1x Concrete Pump, 2x Scissor Lifts, 1x Telehandler, 1x Tower Crane",
-    incidents: "None",
-    visitors: "Owner's Rep — Sarah Johnson (AM inspection)",
-    ai_narrative: "Site activities on 5/28 progressed on schedule with the Level 3 concrete pour completed as planned. 34 workers on site logged 272 labor hours across structural, electrical, and mechanical trades. No safety incidents recorded and no delay events observed. Weather conditions were favorable with clear skies and temperatures within acceptable range for concrete placement. Owner's representative conducted an AM walkthrough with no items raised.",
-    delay_claims: [],
-    weather_impact: false,
-    created_by: "Marcus Rivera",
-  },
-  {
-    id: "dl2", date: "2025-05-27",
-    weather: "Rain", temp_high: "71°F", temp_low: "58°F",
-    crew_count: 21, labor_hours: 147,
-    work_performed: "Interior work only due to weather. Tile installation in Level 2 restrooms (north side). Electrical panel terminations at boards B-1 through B-4. Drywall taping and mud on Level 1 corridor B.",
-    delays: "Concrete pour on Level 3 deferred to 5/28 due to sustained rain. Crane operations suspended from 08:00 to 13:30. Exterior framing crew stood down for 5.5 hours.",
-    equipment: "2x Scissor Lifts, 1x Drywall Lift, 1x Boom Lift (secured)",
-    incidents: "Near-miss: Worker slipped on wet ramp access — no injury. Corrective action: anti-slip mat installed at ramp entry.",
-    visitors: "None",
-    ai_narrative: "Adverse weather on 5/27 resulted in significant productivity loss. Rain-driven suspension of crane operations and exterior works caused a net delay to the Level 3 pour, which is on the critical path. Crew count reduced to 21 (vs planned 38) as exterior trades could not safely operate. A near-miss slip incident was promptly addressed with corrective measures. The delay to the concrete pour may constitute a compensable weather delay event — contractor should document daily rainfall data and compare against specification weather day allowances.",
-    delay_claims: [
-      "Concrete pour deferred by 1 day due to rain — potential weather delay claim if rainfall exceeds contractual allowance",
-      "Crane suspension 08:00–13:30 — 5.5 crew-hours lost on crane-dependent activities (steel placement, material lifts)",
-    ],
-    weather_impact: true,
-    created_by: "Marcus Rivera",
-  },
-  {
-    id: "dl3", date: "2025-05-26",
-    weather: "Clear", temp_high: "78°F", temp_low: "62°F",
-    crew_count: 38, labor_hours: 304,
-    work_performed: "Reinforcement steel placed and inspected on Level 3 slab (ready for pour). Curtain wall installation progressed on south elevation bays 5-9. MEP rough-in inspections passed on Level 1. Interior framing 85% complete on Level 2.",
-    delays: "Inspections took longer than anticipated — structural engineer arrived 90 minutes late. Concrete delivery rescheduled to 5/28.",
-    equipment: "1x Tower Crane, 3x Scissor Lifts, 1x Telehandler, 1x Boom Lift",
-    incidents: "None",
-    visitors: "Structural Engineer — Michael Park (rebar inspection, 10:30 AM)",
-    ai_narrative: "Productive day with 38 personnel and 304 labor hours. Rebar inspection passed and Level 3 slab is ready for pour. Structural engineer's late arrival caused a 90-minute delay cascading to concrete delivery rescheduling — this is contractor-caused and not compensable. Curtain wall installation is tracking on schedule. MEP rough-in inspection approvals on Level 1 unlock the next phase of interior finishes.",
-    delay_claims: [
-      "Structural engineer 90-minute late arrival — contractor-caused delay, non-compensable but should be documented",
-    ],
-    weather_impact: false,
-    created_by: "Sarah Kim",
-  },
-];
 
 const WEATHER_OPTIONS: WeatherCondition[] = ["Clear", "Partly Cloudy", "Overcast", "Rain", "Heavy Rain", "Wind", "Extreme Heat", "Fog"];
 
+function PMDailyLog({ appState }: { appState: AppState }) {
+  const [pmlogs, setPmlogs] = useState<any[]>([]);
+  const [form, setForm] = useState({ property_address:"", date:new Date().toISOString().split("T")[0], activities:"", maintenance_notes:"", tenant_interactions:"", occupancy_notes:"" });
+  const [saving, setSaving] = useState(false);
+  const F2 = "'Outfit',sans-serif";
+  const M2 = "'JetBrains Mono',monospace";
+  const inp2: React.CSSProperties = { width:"100%", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"9px 12px", color:"#f0f4f8", fontSize:13, fontFamily:F2, outline:"none", resize:"vertical" as const, boxSizing:"border-box" as const };
+
+  useEffect(() => {
+    if (!appState.sessionId) return;
+    fetch(`${BASE}/pm/daily-log/${appState.sessionId}`).then(r => r.ok ? r.json() : []).then(setPmlogs).catch(() => {});
+  }, [appState.sessionId]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`${BASE}/pm/daily-log/create`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ session_id:appState.sessionId, ...form }) });
+      if (r.ok) { const d = await r.json(); setPmlogs(prev => [d, ...prev]); setForm(p => ({...p, activities:"", maintenance_notes:"", tenant_interactions:"", occupancy_notes:""})); }
+    } catch {}
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ padding:"0 28px 28px", fontFamily:F2, color:"#f0f4f8" }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:24 }}>
+        <div style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:20 }}>
+          <div style={{ fontSize:13, fontWeight:600, marginBottom:14 }}>Log Property Activity</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <div><label style={{ fontSize:10, fontFamily:M2, color:"rgba(255,255,255,0.3)", letterSpacing:"0.08em", display:"block", marginBottom:4 }}>PROPERTY ADDRESS</label><input value={form.property_address} onChange={e => setForm(p=>({...p,property_address:e.target.value}))} placeholder="123 Main St" style={{ ...inp2, resize:"none" as const }}/></div>
+              <div><label style={{ fontSize:10, fontFamily:M2, color:"rgba(255,255,255,0.3)", letterSpacing:"0.08em", display:"block", marginBottom:4 }}>DATE</label><input type="date" value={form.date} onChange={e => setForm(p=>({...p,date:e.target.value}))} style={{ ...inp2, resize:"none" as const }}/></div>
+            </div>
+            {[{k:"activities",l:"Activities Today",ph:"Describe daily activities..."},{k:"maintenance_notes",l:"Maintenance Notes",ph:"Any maintenance performed or scheduled..."},{k:"tenant_interactions",l:"Tenant Interactions",ph:"Calls, visits, complaints..."},{k:"occupancy_notes",l:"Occupancy Notes",ph:"Move-ins, move-outs, vacancies..."}].map(f => (
+              <div key={f.k}><label style={{ fontSize:10, fontFamily:M2, color:"rgba(255,255,255,0.3)", letterSpacing:"0.08em", display:"block", marginBottom:4 }}>{f.l.toUpperCase()}</label><textarea rows={2} value={(form as any)[f.k]} onChange={e => setForm(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp2}/></div>
+            ))}
+            <button onClick={save} disabled={saving} style={{ padding:"10px", borderRadius:8, border:"none", background:"linear-gradient(135deg,#00a8f0,#0054a0)", color:"#fff", fontSize:13, fontWeight:600, cursor:saving?"not-allowed":"pointer", fontFamily:F2, marginTop:4 }}>
+              {saving ? "Saving + AI Summary…" : "Save Log + AI Summary"}
+            </button>
+          </div>
+        </div>
+        <div style={{ background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:20, overflowY:"auto", maxHeight:500 }}>
+          <div style={{ fontSize:13, fontWeight:600, marginBottom:14 }}>Recent Logs</div>
+          {pmlogs.length === 0 ? <div style={{ color:"rgba(255,255,255,0.2)", fontSize:13, textAlign:"center", padding:"32px 0" }}>No property logs yet</div> : pmlogs.map((l, i) => (
+            <div key={l.id||i} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", paddingBottom:12, marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                <div style={{ fontSize:12, fontWeight:600 }}>{l.property_address||"Property"}</div>
+                <div style={{ fontSize:11, fontFamily:M2, color:"rgba(255,255,255,0.3)" }}>{l.date}</div>
+              </div>
+              {l.ai_summary && <div style={{ fontSize:12, color:"rgba(255,255,255,0.55)", lineHeight:1.6 }}>{l.ai_summary}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DailyLog({ appState }: { appState: AppState }) {
-  const [logs, setLogs] = useState<DailyLogEntry[]>(DEMO_LOGS);
+  const [tab, setTab] = useState("construction");
+  const [logs, setLogs] = useState<DailyLogEntry[]>([]);
   const [expanded, setExpanded] = useState<string | null>("dl1");
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -102,11 +111,120 @@ export default function DailyLog({ appState }: { appState: AppState }) {
     work_performed: "", delays: "", equipment: "", incidents: "", visitors: "",
   });
 
+  // ── Voice recording ──
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const mediaRecRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  // ── Photo upload (daily log) ──
+  const [logPhotos, setLogPhotos] = useState<{file: File; url: string; analysis?: any}[]>([]);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Video analysis ──
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [videoResult, setVideoResult] = useState<any>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4" });
+      chunksRef.current = [];
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType });
+        await transcribeAudio(blob, mr.mimeType);
+      };
+      mr.start();
+      mediaRecRef.current = mr;
+      setRecording(true);
+    } catch {
+      alert("Microphone access denied. Please allow microphone and try again.");
+    }
+  }
+
+  function stopRecording() {
+    mediaRecRef.current?.stop();
+    setRecording(false);
+  }
+
+  async function transcribeAudio(blob: Blob, mimeType: string) {
+    setTranscribing(true);
+    try {
+      const ext = mimeType.includes("mp4") ? ".mp4" : ".webm";
+      const fd = new FormData();
+      fd.append("session_id", appState.sessionId || "");
+      fd.append("file", blob, `recording${ext}`);
+      const r = await fetch(`${BASE}/media/transcribe`, { method: "POST", body: fd });
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      setTranscript(data.transcript || "");
+      const f = data.suggested_fields || {};
+      setForm(prev => ({
+        ...prev,
+        ...(f.date ? { date: f.date } : {}),
+        ...(f.weather ? { weather: f.weather as WeatherCondition } : {}),
+        ...(f.temp_high ? { temp_high: f.temp_high } : {}),
+        ...(f.temp_low ? { temp_low: f.temp_low } : {}),
+        ...(f.crew_count != null ? { crew_count: String(f.crew_count) } : {}),
+        ...(f.labor_hours != null ? { labor_hours: String(f.labor_hours) } : {}),
+        ...(f.work_performed ? { work_performed: f.work_performed } : {}),
+        ...(f.delays ? { delays: f.delays } : {}),
+        ...(f.equipment ? { equipment: f.equipment } : {}),
+        ...(f.incidents ? { incidents: f.incidents } : {}),
+        ...(f.visitors ? { visitors: f.visitors } : {}),
+      }));
+    } catch (e) {
+      alert("Transcription failed: " + (e as Error).message);
+    }
+    setTranscribing(false);
+  }
+
+  async function addPhoto(file: File) {
+    const url = URL.createObjectURL(file);
+    setLogPhotos(prev => [...prev, { file, url }]);
+    setPhotoLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append("session_id", appState.sessionId || "");
+      fd.append("file", file);
+      fd.append("context", "dailylog");
+      const r = await fetch(`${BASE}/media/analyze-photo`, { method: "POST", body: fd });
+      if (r.ok) {
+        const analysis = await r.json();
+        setLogPhotos(prev => prev.map(p => p.url === url ? { ...p, analysis } : p));
+      }
+    } catch {}
+    setPhotoLoading(false);
+  }
+
+  async function analyzeVideo() {
+    if (!videoFile) return;
+    setVideoLoading(true);
+    setVideoResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("session_id", appState.sessionId || "");
+      fd.append("file", videoFile);
+      const r = await fetch(`${BASE}/media/analyze-video`, { method: "POST", body: fd });
+      if (!r.ok) throw new Error(await r.text());
+      setVideoResult(await r.json());
+    } catch (e) {
+      alert("Video analysis failed: " + (e as Error).message);
+    }
+    setVideoLoading(false);
+  }
+
   useEffect(() => {
     if (!appState.sessionId) return;
     fetch(`${BASE}/construction/daily-log/${appState.sessionId}`)
       .then(r => r.json())
-      .then(d => { if (Array.isArray(d) && d.length > 0) setLogs(d); })
+      .then(d => { if (Array.isArray(d)) setLogs(d); })
       .catch(() => {});
   }, [appState.sessionId]);
 
@@ -193,9 +311,135 @@ export default function DailyLog({ appState }: { appState: AppState }) {
     setAiLoading(null);
   }
 
+  const TabBar2 = () => (
+    <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:10, padding:4, marginBottom:24, width:"fit-content" }}>
+      {[{id:"construction",label:"Site Daily Log"},{id:"video",label:"Video Walkthrough"},{id:"pm",label:"Property Daily Log"}].map(t => (
+        <button key={t.id} onClick={() => setTab(t.id)} style={{ padding:"7px 18px", borderRadius:7, border:"none", background:tab===t.id?"rgba(0,168,240,0.15)":"transparent", color:tab===t.id?"#38bfff":"rgba(255,255,255,0.38)", fontSize:13, fontWeight:tab===t.id?600:400, cursor:"pointer", fontFamily:"'Outfit',sans-serif", transition:"all 150ms" }}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (tab === "video") return (
+    <div style={{ padding:28, fontFamily:"'Outfit',sans-serif", color:"#f0f4f8" }}>
+      <TabBar2 />
+      <div style={{ maxWidth:820, margin:"0 auto" }}>
+        <h2 style={{ fontSize:18, fontWeight:700, marginBottom:6 }}>Video Walkthrough Analysis</h2>
+        <p style={{ color:"rgba(255,255,255,0.4)", fontSize:13, marginBottom:24 }}>Upload a site walkthrough video. Gemini AI will extract observations, risks, and progress estimates.</p>
+
+        {/* Upload area */}
+        <div onClick={() => videoInputRef.current?.click()}
+          style={{ border:"2px dashed rgba(0,168,240,0.3)", borderRadius:14, padding:"36px 24px", textAlign:"center", cursor:"pointer", background:"rgba(0,168,240,0.03)", marginBottom:20, transition:"border-color 200ms" }}>
+          <div style={{ fontSize:36, marginBottom:10 }}>🎬</div>
+          {videoFile ? (
+            <div>
+              <div style={{ color:"#38bfff", fontWeight:600, fontSize:14 }}>{videoFile.name}</div>
+              <div style={{ color:"rgba(255,255,255,0.4)", fontSize:12, marginTop:4 }}>{(videoFile.size/1024/1024).toFixed(1)} MB</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ color:"rgba(255,255,255,0.6)", fontSize:14, marginBottom:4 }}>Click or drop a video here</div>
+              <div style={{ color:"rgba(255,255,255,0.3)", fontSize:12 }}>MP4, MOV, WebM — up to 50 MB</div>
+            </div>
+          )}
+        </div>
+        <input ref={videoInputRef} type="file" accept="video/*" style={{ display:"none" }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) { setVideoFile(f); setVideoResult(null); } }} />
+
+        <button onClick={analyzeVideo} disabled={!videoFile || videoLoading}
+          style={{ width:"100%", padding:"12px", borderRadius:10, border:"none", background:videoFile && !videoLoading?"linear-gradient(135deg,#00a8f0,#0054a0)":"rgba(255,255,255,0.06)", color:videoFile?"#fff":"rgba(255,255,255,0.3)", fontSize:14, fontWeight:700, cursor:videoFile&&!videoLoading?"pointer":"default", marginBottom:24 }}>
+          {videoLoading ? "Analyzing video with Gemini AI… (may take ~30s)" : "Analyze Walkthrough Video"}
+        </button>
+
+        {videoLoading && (
+          <div style={{ textAlign:"center", padding:"24px", color:"rgba(255,255,255,0.5)", fontSize:13 }}>
+            <div style={{ width:28, height:28, border:"3px solid rgba(0,168,240,0.2)", borderTopColor:"#38bfff", borderRadius:"50%", animation:"spin 0.8s linear infinite", margin:"0 auto 12px" }} />
+            Uploading and processing video… Gemini will analyze all frames.
+          </div>
+        )}
+
+        {videoResult && (
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+            {/* Summary */}
+            <div style={{ background:"rgba(0,168,240,0.06)", border:"1px solid rgba(0,168,240,0.15)", borderRadius:12, padding:20 }}>
+              <div style={{ color:"#38bfff", fontSize:11, fontFamily:"'JetBrains Mono',monospace", marginBottom:8 }}>EXECUTIVE SUMMARY</div>
+              <p style={{ color:"rgba(255,255,255,0.8)", fontSize:13, lineHeight:1.7, margin:0 }}>{videoResult.summary}</p>
+              {videoResult.completion_estimate > 0 && (
+                <div style={{ marginTop:14 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                    <span style={{ fontSize:12, color:"rgba(255,255,255,0.5)" }}>Estimated Completion</span>
+                    <span style={{ fontSize:12, fontWeight:700, color:"#22d3a0" }}>{videoResult.completion_estimate}%</span>
+                  </div>
+                  <div style={{ height:6, background:"rgba(255,255,255,0.06)", borderRadius:3 }}>
+                    <div style={{ width:`${videoResult.completion_estimate}%`, height:"100%", background:"linear-gradient(90deg,#22d3a0,#00a8f0)", borderRadius:3 }} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Observations */}
+            {videoResult.observations?.length > 0 && (
+              <div style={{ background:"#151b24", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:20 }}>
+                <div style={{ color:"rgba(255,255,255,0.4)", fontSize:11, fontFamily:"'JetBrains Mono',monospace", marginBottom:12 }}>AREA OBSERVATIONS</div>
+                {videoResult.observations.map((obs: any, i: number) => (
+                  <div key={i} style={{ display:"flex", gap:12, paddingBottom:12, marginBottom:12, borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ width:8, height:8, borderRadius:"50%", flexShrink:0, marginTop:5, background: obs.status==="On Track"?"#22d3a0":obs.status==="At Risk"?"#f97316":"#f43f5e" }} />
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:600, color:"#f0f4f8" }}>{obs.area}</div>
+                      <div style={{ fontSize:12, color:"rgba(255,255,255,0.55)", marginTop:3, lineHeight:1.6 }}>{obs.description}</div>
+                      <div style={{ marginTop:5, fontSize:11, color: obs.status==="On Track"?"#22d3a0":obs.status==="At Risk"?"#f97316":"#f43f5e", fontWeight:600 }}>{obs.status}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Risks + Actions side-by-side */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+              {videoResult.risks?.length > 0 && (
+                <div style={{ background:"rgba(244,63,94,0.05)", border:"1px solid rgba(244,63,94,0.15)", borderRadius:12, padding:18 }}>
+                  <div style={{ color:"#f43f5e", fontSize:11, fontFamily:"'JetBrains Mono',monospace", marginBottom:10 }}>RISKS IDENTIFIED</div>
+                  {videoResult.risks.map((r: string, i: number) => (
+                    <div key={i} style={{ fontSize:12, color:"rgba(255,255,255,0.7)", marginBottom:8, paddingLeft:10, borderLeft:"2px solid rgba(244,63,94,0.3)", lineHeight:1.6 }}>{r}</div>
+                  ))}
+                </div>
+              )}
+              {videoResult.action_items?.length > 0 && (
+                <div style={{ background:"rgba(234,179,8,0.05)", border:"1px solid rgba(234,179,8,0.15)", borderRadius:12, padding:18 }}>
+                  <div style={{ color:"#eab308", fontSize:11, fontFamily:"'JetBrains Mono',monospace", marginBottom:10 }}>ACTION ITEMS</div>
+                  {videoResult.action_items.map((a: string, i: number) => (
+                    <div key={i} style={{ fontSize:12, color:"rgba(255,255,255,0.7)", marginBottom:8, paddingLeft:10, borderLeft:"2px solid rgba(234,179,8,0.3)", lineHeight:1.6 }}>• {a}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {videoResult.safety_observations?.length > 0 && (
+              <div style={{ background:"rgba(249,115,22,0.05)", border:"1px solid rgba(249,115,22,0.15)", borderRadius:12, padding:18 }}>
+                <div style={{ color:"#f97316", fontSize:11, fontFamily:"'JetBrains Mono',monospace", marginBottom:10 }}>SAFETY OBSERVATIONS</div>
+                {videoResult.safety_observations.map((s: string, i: number) => (
+                  <div key={i} style={{ fontSize:12, color:"rgba(255,255,255,0.7)", marginBottom:6, paddingLeft:10, borderLeft:"2px solid rgba(249,115,22,0.3)", lineHeight:1.6 }}>⚠ {s}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+
+  if (tab === "pm") return (
+    <div style={{ padding:"28px 28px 0", fontFamily:"'Outfit',sans-serif", color:"#f0f4f8", background:"#0f1319", minHeight:"100%" }}>
+      <TabBar2 />
+      <PMDailyLog appState={appState} />
+    </div>
+  );
+
   return (
     <div style={{ padding: 28, maxWidth: 1300, margin: "0 auto" }}>
-
+      <TabBar2 />
       {/* ── Stats ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
         {[
@@ -421,9 +665,44 @@ export default function DailyLog({ appState }: { appState: AppState }) {
       {/* ── Create modal ── */}
       {showModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-          onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }}>
-          <div style={{ background: "#151b24", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, padding: 28, width: 600, maxHeight: "90vh", overflowY: "auto" }}>
-            <div style={{ color: "#f0f4f8", fontSize: 16, fontWeight: 700, marginBottom: 20 }}>New Daily Log</div>
+          onClick={e => { if (e.target === e.currentTarget) { setShowModal(false); setLogPhotos([]); setTranscript(""); } }}>
+          <div style={{ background: "#151b24", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, padding: 28, width: 640, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 20 }}>
+              <div style={{ color: "#f0f4f8", fontSize: 16, fontWeight: 700 }}>New Daily Log</div>
+              {/* Voice recording button */}
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                {transcribing && <span style={{ color:"rgba(255,255,255,0.5)", fontSize:12 }}>Transcribing…</span>}
+                {transcript && !transcribing && <span style={{ color:"#22d3a0", fontSize:12 }}>Form filled from voice</span>}
+                <button
+                  onClick={recording ? stopRecording : startRecording}
+                  disabled={transcribing}
+                  title={recording ? "Stop recording" : "Record voice to fill form"}
+                  style={{
+                    width:38, height:38, borderRadius:"50%", border:"none", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer",
+                    background: recording ? "rgba(244,63,94,0.2)" : "rgba(0,168,240,0.12)",
+                    boxShadow: recording ? "0 0 0 4px rgba(244,63,94,0.25)" : "none",
+                    transition:"all 200ms",
+                  }}>
+                  {recording ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#f43f5e"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#38bfff" strokeWidth="2" strokeLinecap="round">
+                      <path d="M12 2a3 3 0 013 3v6a3 3 0 01-6 0V5a3 3 0 013-3z"/>
+                      <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+                      <line x1="12" y1="19" x2="12" y2="22"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Transcript preview */}
+            {transcript && (
+              <div style={{ background:"rgba(34,211,160,0.05)", border:"1px solid rgba(34,211,160,0.15)", borderRadius:8, padding:"10px 14px", marginBottom:16, fontSize:12, color:"rgba(255,255,255,0.6)", lineHeight:1.6 }}>
+                <span style={{ color:"#22d3a0", fontWeight:600, fontSize:11 }}>VOICE TRANSCRIPT · </span>{transcript}
+              </div>
+            )}
+
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -472,8 +751,43 @@ export default function DailyLog({ appState }: { appState: AppState }) {
               ))}
             </div>
 
-            <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "flex-end" }}>
-              <button onClick={() => setShowModal(false)}
+            {/* Photo upload */}
+            <div>
+              <label style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, display: "block", marginBottom: 8 }}>Site Photos (optional)</label>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                {logPhotos.map((p, i) => (
+                  <div key={i} style={{ position:"relative", width:80, height:80 }}>
+                    <img src={p.url} style={{ width:80, height:80, objectFit:"cover", borderRadius:8, border:"1px solid rgba(255,255,255,0.1)" }} />
+                    {!p.analysis && photoLoading && (
+                      <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.5)", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        <div style={{ width:14, height:14, border:"2px solid rgba(255,255,255,0.2)", borderTopColor:"#fff", borderRadius:"50%", animation:"spin 0.7s linear infinite" }} />
+                      </div>
+                    )}
+                    {p.analysis && (
+                      <div title={p.analysis.description} style={{ position:"absolute", bottom:4, right:4, background: p.analysis.severity==="High"?"#f43f5e":p.analysis.severity==="Medium"?"#f97316":"#22d3a0", borderRadius:4, padding:"2px 5px", fontSize:10, fontWeight:700, color:"#fff" }}>
+                        {p.analysis.severity || "OK"}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <button onClick={() => photoInputRef.current?.click()}
+                  style={{ width:80, height:80, borderRadius:8, border:"2px dashed rgba(255,255,255,0.15)", background:"transparent", color:"rgba(255,255,255,0.3)", fontSize:22, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  +
+                </button>
+              </div>
+              <input ref={photoInputRef} type="file" accept="image/*" multiple style={{ display:"none" }}
+                onChange={e => { Array.from(e.target.files || []).forEach(addPhoto); e.target.value = ""; }} />
+              {logPhotos.some(p => p.analysis) && (
+                <div style={{ marginTop:8, fontSize:12, color:"rgba(255,255,255,0.5)", lineHeight:1.6 }}>
+                  {logPhotos.filter(p=>p.analysis).map((p,i) => p.analysis?.ai_notes && (
+                    <div key={i}>• {p.analysis.ai_notes}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => { setShowModal(false); setLogPhotos([]); setTranscript(""); }}
                 style={{ padding: "10px 20px", borderRadius: 8, background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontSize: 13, cursor: "pointer" }}>
                 Cancel
               </button>
