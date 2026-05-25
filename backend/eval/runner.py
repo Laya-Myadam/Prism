@@ -111,15 +111,44 @@ def run_benchmark(session_id: str, question_id: str | None = None) -> dict:
     return summary
 
 
+def log_to_mlflow(summary: dict, session_id: str, run_name: str | None = None):
+    """Log benchmark results to MLflow. Safe to call even if MLflow isn't installed."""
+    try:
+        import mlflow
+        mlflow.set_experiment("prism-benchmark")
+        with mlflow.start_run(run_name=run_name or f"benchmark-{session_id}"):
+            mlflow.log_param("session_id", session_id)
+            mlflow.log_param("total_questions", summary["total"])
+            mlflow.log_metric("routing_accuracy",   summary["routing_accuracy"])
+            mlflow.log_metric("tool_accuracy",       summary["tool_accuracy"])
+            mlflow.log_metric("avg_keyword_score",   summary["avg_keyword_score"])
+            mlflow.log_metric("avg_latency_ms",      summary["avg_latency_ms"])
+            # Per-question pass/fail as metrics
+            for r in summary.get("results", []):
+                prefix = r["id"]
+                mlflow.log_metric(f"{prefix}_routing", int(r.get("routing_ok", False)))
+                mlflow.log_metric(f"{prefix}_tool",    int(r.get("tool_ok", False)))
+                mlflow.log_metric(f"{prefix}_kw",      r.get("keyword_score", 0))
+        print("MLflow run logged.")
+    except ImportError:
+        print("[MLflow not installed — skipping tracking. Run: pip install mlflow]")
+    except Exception as e:
+        print(f"[MLflow logging failed: {e}]")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PRISM benchmark runner")
     parser.add_argument("--session_id",  default="demo")
     parser.add_argument("--question_id", default=None)
     parser.add_argument("--output",      default=None, help="Save JSON results to file")
+    parser.add_argument("--mlflow",      action="store_true", help="Log results to MLflow")
     args = parser.parse_args()
 
     print(f"\nPRISM Benchmark — session={args.session_id}\n")
     summary = run_benchmark(args.session_id, args.question_id)
+
+    if args.mlflow:
+        log_to_mlflow(summary, args.session_id)
 
     if args.output:
         with open(args.output, "w") as f:

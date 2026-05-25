@@ -16,6 +16,11 @@ backend/agents/**/__pycache__/
 backend/eval/results/
 backend/eval/*.json.out
 
+# Playwright
+frontend/tests/reports/
+frontend/playwright-report/
+frontend/test-results/
+
 # LangSmith / tracing local cache
 .langsmith/
 

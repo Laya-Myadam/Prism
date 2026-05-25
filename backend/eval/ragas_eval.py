@@ -113,10 +113,30 @@ def run_ragas(session_id: str, questions: list[str] | None = None) -> dict:
         return {}
 
 
+def log_ragas_to_mlflow(scores: dict, session_id: str):
+    """Log RAGAS scores to MLflow. Safe to call even if MLflow isn't installed."""
+    try:
+        import mlflow
+        mlflow.set_experiment("prism-ragas")
+        with mlflow.start_run(run_name=f"ragas-{session_id}"):
+            mlflow.log_param("session_id", session_id)
+            for metric, value in scores.items():
+                mlflow.log_metric(metric, value)
+        print("MLflow RAGAS run logged.")
+    except ImportError:
+        print("[MLflow not installed — skipping. Run: pip install mlflow]")
+    except Exception as e:
+        print(f"[MLflow logging failed: {e}]")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PRISM RAGAS evaluation")
     parser.add_argument("--session_id", default="demo")
+    parser.add_argument("--mlflow",     action="store_true", help="Log scores to MLflow")
     args = parser.parse_args()
 
     print(f"\nPRISM RAGAS Eval — session={args.session_id}")
-    run_ragas(args.session_id)
+    scores = run_ragas(args.session_id)
+
+    if args.mlflow and scores:
+        log_ragas_to_mlflow(scores, args.session_id)

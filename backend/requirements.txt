@@ -70,3 +70,7 @@ cohere>=5.0.0             # optional: Cohere Rerank API (set COHERE_API_KEY)
 # ── Evaluation ────────────────────────────────────────────────────────────────
 ragas>=0.2.0              # RAG evaluation metrics (faithfulness, relevancy, precision)
 datasets>=2.0.0           # required by ragas
+
+# ── MLOps ─────────────────────────────────────────────────────────────────────
+mlflow>=2.13.0            # experiment tracking — run: mlflow ui
+dvc>=3.50.0               # data/model versioning for benchmark dataset

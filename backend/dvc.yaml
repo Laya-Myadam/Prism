@@ -1,0 +1,23 @@
+stages:
+  benchmark:
+    cmd: python -m eval.runner --session_id demo --mlflow --output eval/results/benchmark_latest.json
+    deps:
+      - eval/runner.py
+      - eval/benchmark.json
+      - agents/orchestrator.py
+      - agents/tools.py
+    outs:
+      - eval/results/benchmark_latest.json
+    metrics:
+      - eval/results/benchmark_metrics.json:
+          cache: false
+
+  ragas:
+    cmd: python -m eval.ragas_eval --session_id demo --mlflow
+    deps:
+      - eval/ragas_eval.py
+      - agents/rag/retriever.py
+      - agents/orchestrator.py
+    metrics:
+      - eval/results/ragas_metrics.json:
+          cache: false
