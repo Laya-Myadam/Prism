@@ -174,9 +174,41 @@ export default function Safety({ appState }: Props) {
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:16, fontWeight:700, color:scoreColor(score), marginBottom:6 }}>{result.overall_status}</div>
                   <div style={{ fontSize:13, color:"rgba(255,255,255,0.6)", lineHeight:1.65 }}>{result.summary}</div>
-                  <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", fontFamily:M, marginTop:8 }}>Engine: {result.engine}</div>
+                  <div style={{ display:"flex", gap:12, marginTop:8, flexWrap:"wrap" as const }}>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", fontFamily:M }}>Engine: {result.engine}</div>
+                    {result.blip_caption && <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", fontFamily:M }}>BLIP · HF</div>}
+                    {result.clip_classifications && <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", fontFamily:M }}>CLIP · HF</div>}
+                  </div>
                 </div>
               </div>
+
+              {/* BLIP caption + CLIP classifications */}
+              {(result.blip_caption || result.clip_classifications?.length > 0) && (
+                <div style={{ ...C, borderColor:"rgba(167,139,250,0.15)", display:"grid", gridTemplateColumns: result.blip_caption && result.clip_classifications?.length ? "1fr 1fr" : "1fr", gap:16 }}>
+                  {result.blip_caption && (
+                    <div>
+                      <div style={{ fontSize:10, fontWeight:600, color:"rgba(167,139,250,0.7)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase" as const, marginBottom:8 }}>BLIP Caption</div>
+                      <div style={{ fontSize:12, color:"rgba(255,255,255,0.6)", lineHeight:1.6, fontStyle:"italic" }}>"{result.blip_caption}"</div>
+                    </div>
+                  )}
+                  {result.clip_classifications?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize:10, fontWeight:600, color:"rgba(167,139,250,0.7)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase" as const, marginBottom:8 }}>CLIP Pre-filter</div>
+                      {result.clip_classifications.slice(0,3).map((c: any, i: number) => (
+                        <div key={i} style={{ marginBottom:5 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:2 }}>
+                            <span style={{ fontSize:11, color: i===0 ? "#a78bfa" : "rgba(255,255,255,0.4)", textTransform:"capitalize" }}>{c.label}</span>
+                            <span style={{ fontSize:10, fontFamily:M, color: i===0 ? "#a78bfa" : "rgba(255,255,255,0.3)" }}>{(c.score*100).toFixed(0)}%</span>
+                          </div>
+                          <div style={{ height:3, background:"rgba(255,255,255,0.06)", borderRadius:2 }}>
+                            <div style={{ height:"100%", width:`${c.score*100}%`, background: i===0 ? "#a78bfa" : "rgba(167,139,250,0.25)", borderRadius:2 }}/>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* PPE Compliance */}
               {result.ppe_compliance && (

@@ -252,6 +252,7 @@ export default function DailyLog({ appState }: { appState: AppState }) {
           work_performed: log.work_performed,
           delays: log.delays,
           incidents: log.incidents,
+          provider: appState.aiProvider.summarization,
         }),
       });
       const data = await r.json();

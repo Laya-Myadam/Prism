@@ -37,6 +37,20 @@ export type AppUser = {
   role: string;
 };
 
+export type AIProvider = {
+  summarization: "groq" | "bart-large-cnn";
+  classification: "groq" | "bart-large-mnli";
+  ner: "groq" | "bert-base-NER";
+  qa: "groq" | "roberta-base-squad2";
+};
+
+export const DEFAULT_AI_PROVIDER: AIProvider = {
+  summarization: "groq",
+  classification: "groq",
+  ner: "groq",
+  qa: "groq",
+};
+
 export type AppState = {
   sessionId: string;
   user: AppUser | null;
@@ -55,6 +69,8 @@ export type AppState = {
   setDomain: (d: string) => void;
   setMode: (m: string) => void;
   logout: () => void;
+  aiProvider: AIProvider;
+  setAiProvider: (p: AIProvider) => void;
 };
 
 function ProtectedRoute({ user, authReady, children }: { user: AppUser | null; authReady: boolean; children: React.ReactNode }) {
@@ -118,6 +134,15 @@ export default function App() {
   const [projectName, setProjectName] = useState("");
   const [activeProject, setActiveProject] = useState<string | null>(null);
   const [domain, setDomain] = useState("Auto Detect");
+  const [aiProvider, setAiProviderState] = useState<AIProvider>(() => {
+    try { return JSON.parse(localStorage.getItem("prism_ai_provider") || "null") || DEFAULT_AI_PROVIDER; }
+    catch { return DEFAULT_AI_PROVIDER; }
+  });
+
+  const setAiProvider = (p: AIProvider) => {
+    setAiProviderState(p);
+    localStorage.setItem("prism_ai_provider", JSON.stringify(p));
+  };
 
   useEffect(() => {
     const stored = localStorage.getItem("prism_dummy_user");
@@ -179,6 +204,7 @@ export default function App() {
     domain, setDomain,
     setMode: () => {},
     logout,
+    aiProvider, setAiProvider,
   };
 
   return (

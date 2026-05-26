@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { AppState } from "../../App";
+import type { AppState, AIProvider } from "../../App";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -33,7 +33,7 @@ export default function Settings({ appState }: { appState: AppState }) {
   const roles = ["Project Manager","Site Engineer","Architect","Quantity Surveyor","Safety Officer","Director"];
   const F = "'Outfit',sans-serif";
   const M = "'JetBrains Mono',monospace";
-  const inp: React.CSSProperties = { width:"100%", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"10px 14px", color:"#f0f4f8", fontFamily:F, fontSize:14, outline:"none", transition:"all 0.2s" };
+  const inp: React.CSSProperties = { width:"100%", background:"#1e2a3a", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"10px 14px", color:"#f0f4f8", fontFamily:F, fontSize:14, outline:"none", transition:"all 0.2s" };
   const lbl: React.CSSProperties = { fontSize:10, fontWeight:600, color:"rgba(255,255,255,0.3)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase", display:"block", marginBottom:7 };
   const card: React.CSSProperties = { background:"#1c2535", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:24, marginBottom:14 };
   const secLabel: React.CSSProperties = { fontSize:10, fontWeight:600, color:"rgba(0,168,240,0.7)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:20, display:"block" };
@@ -95,7 +95,7 @@ export default function Settings({ appState }: { appState: AppState }) {
           <div>
             <label style={lbl}>Role</label>
             <select style={{...inp,cursor:"pointer"}} value={form.role} onChange={e=>setForm(p=>({...p,role:e.target.value}))} onFocus={focusIn} onBlur={focusOut}>
-              {roles.map(r=><option key={r}>{r}</option>)}
+              {roles.map(r=><option key={r} style={{ background:"#1c2535", color:"#f0f4f8" }}>{r}</option>)}
             </select>
           </div>
         </div>
@@ -122,6 +122,62 @@ export default function Settings({ appState }: { appState: AppState }) {
             </button>
           </div>
         ))}
+      </div>
+
+      {/* AI Model Provider */}
+      <div style={card}>
+        <span style={secLabel}>AI Model Provider</span>
+        <div style={{ fontSize:12, color:"rgba(255,255,255,0.35)", marginBottom:16, lineHeight:1.6 }}>
+          Groq LLaMA is the default for all tasks. Switch individual tasks to HuggingFace models to compare outputs or test specialized models.
+        </div>
+        {([
+          { task:"summarization" as keyof AIProvider, label:"Summarization", sub:"Daily Log narrative · Meeting summary · PM Log", options:[
+            { value:"groq",           display:"Groq — LLaMA 3.1 8B" },
+            { value:"bart-large-cnn", display:"HuggingFace — BART-large-cnn" },
+          ]},
+          { task:"classification" as keyof AIProvider, label:"Text Classification", sub:"Document type · RFI priority · Change order risk", options:[
+            { value:"groq",            display:"Groq — LLaMA 3.1 8B" },
+            { value:"bart-large-mnli", display:"HuggingFace — BART-large-mnli (zero-shot)" },
+          ]},
+          { task:"ner" as keyof AIProvider, label:"Named Entity Recognition", sub:"Contracts · Obligations · Knowledge Graph entities", options:[
+            { value:"groq",          display:"Groq — LLaMA 3.1 8B" },
+            { value:"bert-base-NER", display:"HuggingFace — BERT-base-NER" },
+          ]},
+          { task:"qa" as keyof AIProvider, label:"Extractive QA", sub:"Contract clause lookup · Spec fact extraction", options:[
+            { value:"groq",                display:"Groq — LLaMA 3.1 8B" },
+            { value:"roberta-base-squad2", display:"HuggingFace — RoBERTa-base-SQuAD2" },
+          ]},
+        ] as { task: keyof AIProvider; label: string; sub: string; options: {value: string; display: string}[] }[]).map((row, i, arr) => (
+          <div key={row.task} style={{ padding:"14px 0", borderBottom: i < arr.length-1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:500, marginBottom:2 }}>{row.label}</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)" }}>{row.sub}</div>
+              </div>
+              <select
+                value={appState.aiProvider[row.task]}
+                onChange={e => appState.setAiProvider({ ...appState.aiProvider, [row.task]: e.target.value as any })}
+                style={{ ...inp, width:"auto", minWidth:280, fontSize:12, padding:"7px 10px", cursor:"pointer",
+                  borderColor: appState.aiProvider[row.task] !== "groq" ? "rgba(167,139,250,0.4)" : "rgba(255,255,255,0.1)",
+                  color: appState.aiProvider[row.task] !== "groq" ? "#a78bfa" : "#f0f4f8",
+                }}
+              >
+                {row.options.map(o => <option key={o.value} value={o.value} style={{ background:"#1c2535", color:"#f0f4f8" }}>{o.display}</option>)}
+              </select>
+            </div>
+            {appState.aiProvider[row.task] !== "groq" && (
+              <div style={{ marginTop:8, padding:"6px 10px", borderRadius:6, background:"rgba(167,139,250,0.08)", border:"1px solid rgba(167,139,250,0.15)", fontSize:11, color:"rgba(167,139,250,0.8)", fontFamily:M }}>
+                ⚡ HuggingFace Inference API — requires HUGGINGFACE_API_KEY · free tier rate limited
+              </div>
+            )}
+          </div>
+        ))}
+        <button
+          onClick={() => appState.setAiProvider({ summarization:"groq", classification:"groq", ner:"groq", qa:"groq" })}
+          style={{ marginTop:16, padding:"8px 16px", borderRadius:7, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.04)", color:"rgba(255,255,255,0.5)", fontSize:12, cursor:"pointer", fontFamily:F }}
+        >
+          Reset all to Groq
+        </button>
       </div>
 
       {/* System */}

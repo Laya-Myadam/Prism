@@ -74,3 +74,6 @@ datasets>=2.0.0           # required by ragas
 # ── MLOps ─────────────────────────────────────────────────────────────────────
 mlflow>=2.13.0            # experiment tracking — run: mlflow ui
 dvc>=3.50.0               # data/model versioning for benchmark dataset
+
+# ── HuggingFace Inference API ─────────────────────────────────────────────────
+huggingface_hub>=0.23.0   # InferenceClient for CLIP, BLIP via HF hosted API

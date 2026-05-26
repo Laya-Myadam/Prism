@@ -996,6 +996,7 @@ gcloud run deploy prism-backend `
 | `COHERE_API_KEY` | backend/.env | Optional — enables Cohere Rerank for RAG precision |
 | `LANGCHAIN_API_KEY` | backend/.env | Optional — enables LangSmith tracing |
 | `LANGCHAIN_TRACING_V2` | backend/.env | Set to `true` to activate LangSmith |
+| `HUGGINGFACE_API_KEY` | backend/.env | Optional — CLIP zero-shot + BLIP captioning via HF Inference API (free tier) |
 | `VITE_API_URL` | frontend/.env.production | Backend URL (Cloud Run URL in prod) |
 
 ---

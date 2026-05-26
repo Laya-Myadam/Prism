@@ -183,6 +183,7 @@ def save_session(session_id: str):
 class QuestionRequest(BaseModel):
     session_id: str
     question: str
+    provider: str = "groq"
 
 class InsightsRequest(BaseModel):
     session_id: str
@@ -322,6 +323,20 @@ async def upload_document(
     session["insights"] = {}
     session["chat_history"] = []
     reset_memory()
+
+    # Also push into pgvector so AI Copilot search_documents tool can find it
+    try:
+        from pypdf import PdfReader
+        from agents.rag.pipeline import ingest_text as rag_ingest
+        raw_text = ""
+        reader = PdfReader(str(file_path))
+        for page in reader.pages:
+            raw_text += page.extract_text() or ""
+        if raw_text.strip():
+            rag_ingest(session_id=session_id, doc_name=file.filename, doc_type=domain, text=raw_text)
+    except Exception as e:
+        print(f"[pgvector ingest skipped]: {e}")
+
     return {"status": "success", "filename": file.filename, "domain": domain, "text_chunks": text_chunks, "image_count": image_count}
 
 @app.post("/general/upload-b")
@@ -351,7 +366,21 @@ def ask_document(req: QuestionRequest):
     if not session["vectorstore"]:
         raise HTTPException(status_code=400, detail="No document uploaded yet.")
     session["chat_history"].append({"role": "user", "content": req.question})
-    answer = ask_question(session["vectorstore"], req.question, session["chat_history"])
+
+    if req.provider == "roberta-base-squad2":
+        # Retrieve context chunks from vectorstore, then run RoBERTa extractive QA
+        docs = session["vectorstore"].as_retriever(
+            search_type="mmr", search_kwargs={"k": 6, "fetch_k": 20}
+        ).invoke(req.question)
+        context = "\n\n".join(d.page_content for d in docs)
+        try:
+            raw = _hf_qa(req.question, context)
+            answer = f"[RoBERTa] {raw}" if raw else "I couldn't find that in the document."
+        except Exception as e:
+            answer = f"RoBERTa unavailable ({e}). Try switching back to Groq."
+    else:
+        answer = ask_question(session["vectorstore"], req.question, session["chat_history"])
+
     session["chat_history"].append({"role": "assistant", "content": answer})
     return {"answer": answer, "chat_history": session["chat_history"]}
 
@@ -946,18 +975,37 @@ Example of correct output for a high-risk clause:
 # ── Meeting Intelligence ──────────────────────────────────────────────────────
 
 @app.post("/construction/meeting-intelligence")
-async def meeting_intelligence(session_id: str = Form(default=""), file: UploadFile = File(...)):
+async def meeting_intelligence(session_id: str = Form(default=""), file: UploadFile = File(...), provider: str = Form(default="groq")):
     file_path = UPLOAD_DIR / file.filename
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     text = ""
-    try:
-        from pypdf import PdfReader
-        reader = PdfReader(str(file_path))
-        for page in reader.pages:
-            text += page.extract_text() or ""
-    except Exception:
-        pass
+    ext = file_path.suffix.lower()
+
+    # ── Audio file: transcribe with Whisper via Groq ──────────────────────────
+    if ext in {".mp3", ".mp4", ".m4a", ".wav", ".webm", ".ogg", ".flac"}:
+        try:
+            from groq import Groq as _GroqAudio
+            _ac = _GroqAudio(api_key=os.environ.get("GROQ_API_KEY"))
+            with open(file_path, "rb") as audio_f:
+                transcription = _ac.audio.transcriptions.create(
+                    model="whisper-large-v3",
+                    file=(file_path.name, audio_f),
+                    response_format="text",
+                )
+            text = transcription if isinstance(transcription, str) else transcription.text
+        except Exception as e:
+            text = f"[Audio transcription failed: {e}]"
+    else:
+        # ── PDF / TXT: extract text ───────────────────────────────────────────
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(str(file_path))
+            for page in reader.pages:
+                text += page.extract_text() or ""
+        except Exception:
+            pass
+
     if not text.strip():
         text = f"Meeting document: {file.filename}"
     try:
@@ -991,6 +1039,13 @@ Return ONLY valid JSON:
         raw = re.sub(r"^```json\s*|^```\s*|```$", "", r.choices[0].message.content.strip(), flags=re.MULTILINE).strip()
         result = json.loads(raw)
         result["filename"] = file.filename
+        # Override summary with BART if requested
+        if provider == "bart-large-cnn":
+            try:
+                bart_summary = _hf_summarize(result.get("summary", text[:1000]), max_length=150)
+                result["summary"] = f"[BART] {bart_summary}"
+            except Exception:
+                pass
         return result
     except Exception:
         return {
@@ -1017,6 +1072,34 @@ async def safety_analyze(session_id: str = Form(default=""), file: UploadFile = 
     file_path = UPLOAD_DIR / file.filename
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
+
+    # ── Step 1: CLIP zero-shot pre-filter (fast, quota-free) ──────────────────
+    clip_result = None
+    blip_caption = None
+    try:
+        hf = _hf_client()
+        safety_labels = [
+            "PPE compliant workers", "missing hard hat", "missing high-vis vest",
+            "fall hazard", "unsecured ladder", "good site housekeeping",
+            "cluttered site", "heavy machinery hazard",
+        ]
+        with open(file_path, "rb") as img:
+            clip_raw = hf.zero_shot_image_classification(
+                img, candidate_labels=safety_labels,
+                model="openai/clip-vit-large-patch14",
+            )
+        clip_result = [{"label": r["label"], "score": round(r["score"], 4)} for r in clip_raw[:4]]
+    except Exception:
+        clip_result = None
+
+    # ── Step 2: BLIP caption (enriches Gemini context) ───────────────────────
+    try:
+        hf = _hf_client()
+        with open(file_path, "rb") as img:
+            blip_caption = hf.image_to_text(img, model="Salesforce/blip-image-captioning-large")
+    except Exception:
+        blip_caption = None
+
     try:
         import google.generativeai as genai
         api_key = os.getenv("GEMINI_API_KEY")
@@ -1041,29 +1124,39 @@ async def safety_analyze(session_id: str = Form(default=""), file: UploadFile = 
             with open(file_path, "rb") as fh:
                 image_data = base64.b64encode(fh.read()).decode()
             mime = "image/jpeg" if ext == ".jpg" else f"image/{ext.lstrip('.')}"
-        prompt = """You are a certified construction safety inspector (OSHA/HSE). Analyze this site photo.
+
+        clip_context = ""
+        if clip_result:
+            top = clip_result[0]
+            clip_context = f"\nCLIP pre-analysis (top signal): {top['label']} (confidence {top['score']:.0%})"
+        blip_context = f"\nBLIP image caption: {blip_caption}" if blip_caption else ""
+
+        prompt = f"""You are a certified construction safety inspector (OSHA/HSE). Analyze this site photo.
+{clip_context}{blip_context}
 Return ONLY valid JSON:
-{
+{{
   "safety_score": number (0-100),
   "overall_status": "Compliant/Needs Attention/Non-Compliant",
   "summary": "2-3 sentence professional safety assessment",
-  "ppe_compliance": {
+  "ppe_compliance": {{
     "hard_hats": "Compliant/Non-Compliant/Not Visible",
     "high_vis_vests": "Compliant/Non-Compliant/Not Visible",
     "safety_boots": "Compliant/Non-Compliant/Not Visible",
     "gloves": "Compliant/Non-Compliant/Not Visible",
     "eye_protection": "Compliant/Non-Compliant/Not Visible"
-  },
-  "hazards": [{"type":"type","severity":"Critical/High/Medium/Low","location":"where","description":"what","required_action":"action"}],
+  }},
+  "hazards": [{{"type":"type","severity":"Critical/High/Medium/Low","location":"where","description":"what","required_action":"action"}}],
   "positive_observations": ["things done correctly"],
   "immediate_actions": ["actions needed NOW"],
   "recommendations": ["improvements"],
   "estimated_workers_visible": number
-}"""
+}}"""
         response = model.generate_content([{"mime_type": mime, "data": image_data}, prompt])
         raw = re.sub(r"^```json\s*|^```\s*|```$", "", response.text.strip(), flags=re.MULTILINE).strip()
         result = json.loads(raw)
         result["engine"] = "gemini-vision"
+        result["blip_caption"] = blip_caption
+        result["clip_classifications"] = clip_result
         return result
     except Exception:
         return {
@@ -2051,6 +2144,7 @@ class DailyLogAI(BaseModel):
     delays: str = ""
     incidents: str = ""
     delay_hours: float = 0.0
+    provider: str = "groq"        # "groq" | "bart-large-cnn"
 
 @app.post("/construction/daily-log/create")
 async def daily_log_create(body: DailyLogCreate):
@@ -2125,10 +2219,21 @@ async def daily_log_ai_summary(body: DailyLogAI):
     hours = body.labor_hours if body.labor_hours is not None else crew * 8
     manpower_str = ", ".join([f"{e.get('count',0)} {e.get('trade','')} ({e.get('hours',8)}h)" if isinstance(e,dict) else str(e) for e in body.manpower]) or f"{crew} workers, {hours} total labor hours"
     log_id = body.log_id or body.id
+    log_text = (
+        f"Daily site report for {body.date}. Weather: {body.weather}. "
+        f"Manpower on site: {manpower_str}. "
+        f"Work performed: {body.work_performed}. "
+        f"Delays: {body.delays or 'None reported'}. Delay hours: {body.delay_hours}. "
+        f"Incidents: {body.incidents or 'None'}."
+    )
     try:
-        from groq import Groq as GroqClient
-        gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
-        prompt = f"""Write a formal construction daily site report narrative for the following site activity.
+        if body.provider == "bart-large-cnn":
+            summary = _hf_summarize(log_text, max_length=250)
+            summary = f"[BART] {summary}"
+        else:
+            from groq import Groq as GroqClient
+            gc = GroqClient(api_key=os.environ.get("GROQ_API_KEY"))
+            prompt = f"""Write a formal construction daily site report narrative for the following site activity.
 
 Date: {body.date}
 Weather: {body.weather}
@@ -2138,12 +2243,12 @@ Delays: {body.delays or "None reported"}
 Delay Hours: {body.delay_hours}
 
 Write a professional 3-4 paragraph daily report narrative suitable for a contract record. Be specific and formal."""
-        r = gc.chat.completions.create(
-            model=os.getenv("GROQ_MODEL","llama-3.1-8b-instant"),
-            messages=[{"role":"user","content":prompt}],
-            temperature=0.3, max_tokens=500,
-        )
-        summary = r.choices[0].message.content.strip()
+            r = gc.chat.completions.create(
+                model=os.getenv("GROQ_MODEL","llama-3.1-8b-instant"),
+                messages=[{"role":"user","content":prompt}],
+                temperature=0.3, max_tokens=500,
+            )
+            summary = r.choices[0].message.content.strip()
 
         delay_flag = None
         if body.delays and body.delay_hours > 0:
@@ -3852,3 +3957,157 @@ async def get_traces(session_id: str):
         return summary
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── HuggingFace Inference API — CLIP + BLIP ───────────────────────────────────
+
+def _hf_client():
+    from huggingface_hub import InferenceClient
+    token = os.getenv("HUGGINGFACE_API_KEY")
+    return InferenceClient(token=token)
+
+
+def _hf_summarize(text: str, max_length: int = 300) -> str:
+    """BART-large-cnn summarization via HF Inference API."""
+    client = _hf_client()
+    result = client.summarization(
+        text[:3000],
+        model="facebook/bart-large-cnn",
+        parameters={"max_length": max_length, "min_length": 60},
+    )
+    return result.get("summary_text", "") if isinstance(result, dict) else str(result)
+
+
+def _hf_zero_shot(text: str, labels: list[str]) -> dict:
+    """BART-large-mnli zero-shot text classification via HF Inference API."""
+    client = _hf_client()
+    result = client.zero_shot_classification(
+        text[:1000],
+        candidate_labels=labels,
+        model="facebook/bart-large-mnli",
+    )
+    if isinstance(result, dict) and "labels" in result:
+        return {l: round(s, 4) for l, s in zip(result["labels"], result["scores"])}
+    return {}
+
+
+def _hf_ner(text: str) -> list:
+    """BERT-base-NER entity extraction via HF Inference API."""
+    client = _hf_client()
+    result = client.token_classification(
+        text[:1000],
+        model="dslim/bert-base-NER",
+    )
+    entities = []
+    for ent in (result or []):
+        if isinstance(ent, dict) and ent.get("score", 0) > 0.85:
+            entities.append({
+                "text": ent.get("word", ""),
+                "type": ent.get("entity_group", ent.get("entity", "")),
+                "score": round(ent.get("score", 0), 4),
+            })
+    return entities
+
+
+def _hf_qa(question: str, context: str) -> str:
+    """RoBERTa-base-SQuAD2 extractive QA via HF Inference API."""
+    client = _hf_client()
+    result = client.question_answering(
+        question=question,
+        context=context[:2000],
+        model="deepset/roberta-base-squad2",
+    )
+    return result.get("answer", "") if isinstance(result, dict) else str(result)
+
+
+@app.post("/hf/blip-caption")
+async def hf_blip_caption(file: UploadFile = File(...)):
+    """Generate a natural language caption for an image using BLIP via HF Inference API."""
+    ext = Path(file.filename).suffix.lower() or ".jpg"
+    tmp = UPLOAD_DIR / f"blip_{uuid.uuid4().hex}{ext}"
+    with open(tmp, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    try:
+        client = _hf_client()
+        with open(tmp, "rb") as img:
+            caption = client.image_to_text(img, model="Salesforce/blip-image-captioning-large")
+        return {"caption": caption}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"BLIP caption failed: {e}")
+    finally:
+        try: tmp.unlink()
+        except: pass
+
+
+@app.post("/hf/clip-classify")
+async def hf_clip_classify(
+    file: UploadFile = File(...),
+    labels: str = Form(default="PPE compliant,missing hard hat,missing high-vis vest,fall hazard,machinery hazard,good housekeeping,poor housekeeping"),
+):
+    """Zero-shot image classification using CLIP via HF Inference API."""
+    ext = Path(file.filename).suffix.lower() or ".jpg"
+    tmp = UPLOAD_DIR / f"clip_{uuid.uuid4().hex}{ext}"
+    with open(tmp, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    try:
+        client = _hf_client()
+        label_list = [l.strip() for l in labels.split(",") if l.strip()]
+        with open(tmp, "rb") as img:
+            results = client.zero_shot_image_classification(
+                img,
+                candidate_labels=label_list,
+                model="openai/clip-vit-large-patch14",
+            )
+        return {"classifications": [{"label": r["label"], "score": round(r["score"], 4)} for r in results]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CLIP classify failed: {e}")
+    finally:
+        try: tmp.unlink()
+        except: pass
+
+
+class HFTextRequest(BaseModel):
+    text: str
+    labels: list[str] = []
+    question: str = ""
+
+
+@app.post("/hf/summarize")
+async def hf_summarize(req: HFTextRequest):
+    """BART-large-cnn summarization via HF Inference API."""
+    try:
+        summary = _hf_summarize(req.text)
+        return {"summary": summary, "model": "facebook/bart-large-cnn"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"BART summarize failed: {e}")
+
+
+@app.post("/hf/zero-shot")
+async def hf_zero_shot(req: HFTextRequest):
+    """BART-large-mnli zero-shot text classification via HF Inference API."""
+    try:
+        scores = _hf_zero_shot(req.text, req.labels or ["positive", "negative", "neutral"])
+        return {"scores": scores, "model": "facebook/bart-large-mnli"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Zero-shot classify failed: {e}")
+
+
+@app.post("/hf/ner")
+async def hf_ner(req: HFTextRequest):
+    """BERT-base-NER entity extraction via HF Inference API."""
+    try:
+        entities = _hf_ner(req.text)
+        return {"entities": entities, "model": "dslim/bert-base-NER"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"NER failed: {e}")
+
+
+@app.post("/hf/qa")
+async def hf_qa(req: HFTextRequest):
+    """RoBERTa-base-SQuAD2 extractive QA via HF Inference API."""
+    try:
+        answer = _hf_qa(req.question, req.text)
+        return {"answer": answer, "model": "deepset/roberta-base-squad2"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"QA failed: {e}")
+

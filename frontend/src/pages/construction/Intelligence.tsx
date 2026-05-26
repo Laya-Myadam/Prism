@@ -53,6 +53,9 @@ export default function Intelligence({ appState }: Props) {
   const [meetingResult, setMeetingResult]     = useState<any>(null);
   const [meetingError, setMeetingError]       = useState("");
   const meetingInputRef = useRef<HTMLInputElement>(null);
+  const [meetingRecording, setMeetingRecording] = useState(false);
+  const meetingMediaRef = useRef<MediaRecorder|null>(null);
+  const meetingChunksRef = useRef<Blob[]>([]);
 
   // Spec Compliance state
   const [specFile, setSpecFile]       = useState<File|null>(null);
@@ -109,7 +112,7 @@ export default function Intelligence({ appState }: Props) {
     try {
       const res = await fetch(`${API_BASE}/general/ask`, {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ session_id: appState.sessionId, question: q }),
+        body: JSON.stringify({ session_id: appState.sessionId, question: q, provider: appState.aiProvider.qa }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed");
@@ -141,12 +144,36 @@ export default function Intelligence({ appState }: Props) {
       const fd = new FormData();
       fd.append("session_id", appState.sessionId);
       fd.append("file", f);
+      fd.append("provider", appState.aiProvider.summarization);
       const res = await fetch(`${API_BASE}/construction/meeting-intelligence`, { method:"POST", body:fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed");
       setMeetingResult(data);
     } catch (e: any) { setMeetingError(e.message ?? "Processing failed"); }
     finally { setMeetingLoading(false); }
+  };
+
+  const startMeetingRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4" });
+      meetingChunksRef.current = [];
+      mr.ondataavailable = e => { if (e.data.size > 0) meetingChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(meetingChunksRef.current, { type: mr.mimeType });
+        const ext = mr.mimeType.includes("mp4") ? ".mp4" : ".webm";
+        processMeeting(new File([blob], `meeting-recording${ext}`, { type: mr.mimeType }));
+      };
+      mr.start();
+      meetingMediaRef.current = mr;
+      setMeetingRecording(true);
+    } catch { alert("Microphone access denied."); }
+  };
+
+  const stopMeetingRecording = () => {
+    meetingMediaRef.current?.stop();
+    setMeetingRecording(false);
   };
 
   // ── Spec Compliance handler ───────────────────────────────────────────────
@@ -168,7 +195,7 @@ export default function Intelligence({ appState }: Props) {
 
   return (
     <div style={{ padding:"28px 32px", fontFamily:F, color:"#f0f4f8", maxWidth:1100 }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
       <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:"-0.025em", marginBottom:4 }}>Construction Intelligence</h1>
       <p style={{ fontSize:13, color:"rgba(255,255,255,0.35)", marginBottom:20 }}>Blueprint CV · Document Q&A · Contract Risk · Meeting Intelligence · Spec Compliance</p>
 
@@ -433,16 +460,44 @@ export default function Intelligence({ appState }: Props) {
           <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
             <div style={C}>
               <div style={{ fontSize:10, fontWeight:600, color:"rgba(255,255,255,0.3)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase" as const, marginBottom:12 }}>Upload Meeting Notes</div>
-              <div onClick={() => meetingInputRef.current?.click()} style={{ border:"2px dashed rgba(255,255,255,0.12)", borderRadius:10, padding:"28px 12px", display:"flex", flexDirection:"column", alignItems:"center", cursor:"pointer", transition:"all 0.2s", background:"rgba(255,255,255,0.02)", textAlign:"center" as const }}
+              <div onClick={() => meetingInputRef.current?.click()} style={{ border:"2px dashed rgba(255,255,255,0.12)", borderRadius:10, padding:"20px 12px", display:"flex", flexDirection:"column", alignItems:"center", cursor:"pointer", transition:"all 0.2s", background:"rgba(255,255,255,0.02)", textAlign:"center" as const }}
                 onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(167,139,250,0.5)"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.12)"; }}>
                 <Users size={24} color="#a78bfa" style={{ marginBottom:8 }}/>
-                <div style={{ fontSize:12, color:"rgba(255,255,255,0.5)", marginBottom:4 }}>Meeting minutes or notes PDF</div>
-                <div style={{ fontSize:11, color:"rgba(255,255,255,0.25)" }}>PDF only</div>
-                <input ref={meetingInputRef} type="file" accept=".pdf,.txt" style={{ display:"none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processMeeting(f); }}/>
+                <div style={{ fontSize:12, color:"rgba(255,255,255,0.5)", marginBottom:4 }}>Meeting minutes, notes, or audio recording</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.25)" }}>PDF · TXT · MP3 · MP4 · WAV · M4A · WebM</div>
+                <input ref={meetingInputRef} type="file" accept=".pdf,.txt,.mp3,.mp4,.m4a,.wav,.webm,.ogg,.flac" style={{ display:"none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processMeeting(f); }}/>
               </div>
-              {meetingFile && <div style={{ marginTop:8, fontSize:12, color:"rgba(255,255,255,0.4)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>{meetingFile.name}</div>}
-              {meetingLoading && <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:"rgba(255,255,255,0.4)", marginTop:8 }}><Loader2 size={13} style={{ animation:"spin 0.7s linear infinite" }}/>Extracting intelligence...</div>}
+
+              {/* Record button */}
+              <button
+                onClick={meetingRecording ? stopMeetingRecording : startMeetingRecording}
+                disabled={meetingLoading}
+                style={{ padding:"10px 12px", borderRadius:9, background: meetingRecording ? "linear-gradient(135deg,#f43f5e,#b91c3b)" : "rgba(167,139,250,0.12)", color: meetingRecording ? "#fff" : "#a78bfa", fontSize:13, fontWeight:600, cursor:meetingLoading?"not-allowed":"pointer", fontFamily:F, display:"flex", alignItems:"center", justifyContent:"center", gap:8, border: meetingRecording ? "none" : "1px solid rgba(167,139,250,0.25)", transition:"all 0.2s" }}
+              >
+                {meetingRecording
+                  ? <><div style={{ width:10, height:10, borderRadius:2, background:"#fff" }}/> Stop Recording</>
+                  : <><div style={{ width:10, height:10, borderRadius:"50%", background:"#f43f5e" }}/> Record Meeting</>
+                }
+              </button>
+              {meetingRecording && (
+                <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"#f43f5e", fontFamily:M }}>
+                  <div style={{ width:6, height:6, borderRadius:"50%", background:"#f43f5e", animation:"pulse 1s ease-in-out infinite" }}/>
+                  Recording… click Stop when done
+                </div>
+              )}
+              {meetingFile && (
+                <div style={{ marginTop:8, fontSize:12, color:"rgba(255,255,255,0.4)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" as const }}>
+                  {meetingFile.name.match(/\.(mp3|mp4|m4a|wav|webm|ogg|flac)$/i) && <span style={{ color:"#a78bfa", marginRight:6 }}>🎙</span>}
+                  {meetingFile.name}
+                </div>
+              )}
+              {meetingLoading && (
+                <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:"rgba(255,255,255,0.4)", marginTop:8 }}>
+                  <Loader2 size={13} style={{ animation:"spin 0.7s linear infinite" }}/>
+                  {meetingFile?.name.match(/\.(mp3|mp4|m4a|wav|webm|ogg|flac)$/i) ? "Transcribing audio with Whisper..." : "Extracting intelligence..."}
+                </div>
+              )}
             </div>
             <div style={{ ...C, padding:"14px 16px" }}>
               <div style={{ fontSize:10, fontWeight:600, color:"rgba(255,255,255,0.3)", fontFamily:M, letterSpacing:"0.1em", textTransform:"uppercase" as const, marginBottom:10 }}>AI Extracts</div>
@@ -462,14 +517,18 @@ export default function Intelligence({ appState }: Props) {
               <div style={{ ...C, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:380, textAlign:"center" as const }}>
                 <div style={{ width:64, height:64, borderRadius:16, background:"rgba(167,139,250,0.08)", border:"1px solid rgba(167,139,250,0.15)", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:16 }}><Users size={28} color="rgba(167,139,250,0.5)"/></div>
                 <div style={{ fontSize:14, fontWeight:600, color:"rgba(255,255,255,0.4)", marginBottom:8 }}>Meeting Intelligence Ready</div>
-                <div style={{ fontSize:12, color:"rgba(255,255,255,0.2)", maxWidth:280, lineHeight:1.7 }}>Upload meeting minutes or notes and the AI will extract all action items, decisions, risks, and open issues.</div>
+                <div style={{ fontSize:12, color:"rgba(255,255,255,0.2)", maxWidth:280, lineHeight:1.7 }}>Upload meeting minutes (PDF/TXT) or an audio recording (MP3/MP4/WAV) — Whisper transcribes audio, then AI extracts action items, decisions, risks, and open issues.</div>
               </div>
             )}
 
             {meetingLoading && (
               <div style={{ ...C, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:380, gap:16 }}>
                 <div style={{ width:48, height:48, borderRadius:"50%", border:"3px solid rgba(167,139,250,0.2)", borderTopColor:"#a78bfa", animation:"spin 0.8s linear infinite" }}/>
-                <div style={{ fontSize:13, color:"rgba(255,255,255,0.4)" }}>Extracting meeting intelligence...</div>
+                <div style={{ fontSize:13, color:"rgba(255,255,255,0.4)" }}>
+                  {meetingFile?.name.match(/\.(mp3|mp4|m4a|wav|webm|ogg|flac)$/i)
+                    ? "Transcribing audio with Whisper, then extracting intelligence..."
+                    : "Extracting meeting intelligence..."}
+                </div>
               </div>
             )}
 

@@ -5,7 +5,7 @@ import { askProject, clearConstructionChat } from "../../api/client";
 import type { ChatMessage } from "../../api/client";
 import FileUpload from "../../components/FileUpload";
 import DocClassifier from "../../components/DocClassifier";
-import { Send, Trash2, Loader2, AlertCircle, CheckCircle, Bot, FileText, Lightbulb } from "lucide-react";
+import { Send, Trash2, Loader2, AlertCircle, CheckCircle, Bot, FileText, Lightbulb, Image } from "lucide-react";
 import { useRef, useEffect } from "react";
 
 interface Props { appState: AppState; }
@@ -41,6 +41,32 @@ export default function Documents({ appState }: Props) {
   const [askLoading, setAskLoading] = useState(false);
   const [askError, setAskError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const clipInputRef = useRef<HTMLInputElement>(null);
+  const [clipFile, setClipFile] = useState<File|null>(null);
+  const [clipPreview, setClipPreview] = useState<string|null>(null);
+  const [clipLoading, setClipLoading] = useState(false);
+  const [clipResult, setClipResult] = useState<{label:string; score:number}[]|null>(null);
+
+  const runClipClassify = async (f: File) => {
+    setClipFile(f);
+    setClipPreview(URL.createObjectURL(f));
+    setClipResult(null);
+    setClipLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      fd.append("labels", "engineering drawing,site photograph,contract document,specification sheet,inspection report,progress photo,safety documentation,material submittal");
+      const base = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const res = await fetch(`${base}/hf/clip-classify`, { method:"POST", body:fd });
+      if (!res.ok) throw new Error("CLIP classification failed");
+      const data = await res.json();
+      setClipResult(data.classifications);
+    } catch {
+      setClipResult(null);
+    } finally {
+      setClipLoading(false);
+    }
+  };
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, askLoading]);
 
@@ -138,11 +164,67 @@ export default function Documents({ appState }: Props) {
           )}
 
           {setupStep==="upload" && (
-            <div style={card({ padding:24 })}>
-              <div style={{ fontSize:13, fontWeight:600, marginBottom:3 }}>Upload Project Documents</div>
-              <div style={{ fontSize:12, color:"rgba(255,255,255,0.35)", marginBottom:20 }}>Upload contracts, drawings, specs, RFIs, daily reports — all at once. AI will auto-classify each one.</div>
-              <FileUpload sessionId={appState.sessionId} loading={setupLoading} setLoading={setSetupLoading} setError={setSetupError} onUploadComplete={handleClassified}/>
-            </div>
+            <>
+              <div style={card({ padding:24, marginBottom:16 })}>
+                <div style={{ fontSize:13, fontWeight:600, marginBottom:3 }}>Upload Project Documents</div>
+                <div style={{ fontSize:12, color:"rgba(255,255,255,0.35)", marginBottom:20 }}>Upload contracts, drawings, specs, RFIs, daily reports — all at once. AI will auto-classify each one.</div>
+                <FileUpload sessionId={appState.sessionId} loading={setupLoading} setLoading={setSetupLoading} setError={setSetupError} onUploadComplete={handleClassified}/>
+              </div>
+
+              {/* ── CLIP Image Classifier ── */}
+              <div style={card({ padding:20, borderColor:"rgba(167,139,250,0.15)" })}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                  <Image size={14} color="#a78bfa"/>
+                  <span style={{ fontSize:13, fontWeight:600 }}>Image Document Classifier</span>
+                  <span style={{ fontSize:9, fontWeight:700, background:"rgba(167,139,250,0.15)", color:"#a78bfa", padding:"2px 6px", borderRadius:3, fontFamily:M }}>CLIP · HuggingFace</span>
+                </div>
+                <div style={{ fontSize:12, color:"rgba(255,255,255,0.35)", marginBottom:14 }}>Upload a site photo or blueprint image — CLIP zero-shot classifies the document type instantly.</div>
+                <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
+                  <div
+                    onClick={() => clipInputRef.current?.click()}
+                    style={{ width:120, height:90, border:"2px dashed rgba(167,139,250,0.25)", borderRadius:10, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", background:"rgba(167,139,250,0.04)", flexShrink:0, overflow:"hidden", transition:"border-color 0.2s" }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor="rgba(167,139,250,0.5)")}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor="rgba(167,139,250,0.25)")}
+                  >
+                    {clipPreview
+                      ? <img src={clipPreview} alt="preview" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+                      : <><Image size={20} color="rgba(167,139,250,0.4)"/><span style={{ fontSize:10, color:"rgba(255,255,255,0.25)", marginTop:6 }}>JPG · PNG</span></>
+                    }
+                    <input ref={clipInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => { const f = e.target.files?.[0]; if (f) runClipClassify(f); }}/>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    {!clipFile && !clipLoading && (
+                      <div style={{ fontSize:12, color:"rgba(255,255,255,0.2)", lineHeight:1.7 }}>Click the box to upload an image. CLIP will classify it as: engineering drawing, site photo, contract, spec sheet, inspection report, and more.</div>
+                    )}
+                    {clipLoading && (
+                      <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:"rgba(167,139,250,0.6)" }}>
+                        <div style={{ width:14, height:14, borderRadius:"50%", border:"2px solid rgba(167,139,250,0.3)", borderTopColor:"#a78bfa", animation:"spin 0.7s linear infinite" }}/>
+                        Running CLIP zero-shot classification...
+                      </div>
+                    )}
+                    {clipResult && (
+                      <div>
+                        <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)", fontFamily:M, letterSpacing:"0.08em", marginBottom:8 }}>CLASSIFICATION RESULTS</div>
+                        {clipResult.slice(0,4).map((r, i) => (
+                          <div key={i} style={{ marginBottom:6 }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                              <span style={{ fontSize:12, color: i===0 ? "#a78bfa" : "rgba(255,255,255,0.45)", fontWeight: i===0 ? 600 : 400, textTransform:"capitalize" }}>{r.label}</span>
+                              <span style={{ fontSize:11, fontFamily:M, color: i===0 ? "#a78bfa" : "rgba(255,255,255,0.3)" }}>{(r.score*100).toFixed(0)}%</span>
+                            </div>
+                            <div style={{ height:4, background:"rgba(255,255,255,0.06)", borderRadius:2 }}>
+                              <div style={{ height:"100%", width:`${r.score*100}%`, background: i===0 ? "#a78bfa" : "rgba(167,139,250,0.3)", borderRadius:2, transition:"width 0.5s ease" }}/>
+                            </div>
+                          </div>
+                        ))}
+                        <div style={{ fontSize:10, color:"rgba(255,255,255,0.2)", marginTop:8, fontFamily:M }}>
+                          Top match: <span style={{ color:"#a78bfa" }}>{clipResult[0]?.label}</span> · {clipFile?.name}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
           )}
 
           {setupStep==="classify" && (
