@@ -59,13 +59,13 @@ SPECIALIST_MAP = {
 _RAG = ["search_documents"]
 
 SPECIALIST_TOOLS = {
-    "site_ops":  ["get_daily_logs", "get_weather_risk", "get_projects", "get_overdue_tasks"] + _RAG,
-    "rfi":       ["get_rfis", "get_change_orders", "get_obligations", "get_submittals"] + _RAG,
+    "site_ops":  ["get_daily_logs", "get_weather_risk", "get_projects", "get_overdue_tasks", "create_rfi"] + _RAG,
+    "rfi":       ["get_rfis", "get_change_orders", "get_obligations", "get_submittals", "create_rfi"] + _RAG,
     "schedule":  ["get_schedule", "get_overdue_tasks", "get_punch_list", "get_projects"] + _RAG,
     "risk":      ["get_weather_risk", "get_daily_logs", "get_rfis", "get_overdue_tasks",
                   "get_submittals", "get_change_orders", "get_schedule", "get_punch_list"] + _RAG,
     "property":  ["get_leases", "get_tenants", "get_maintenance", "get_noi_reports",
-                  "get_cam_reconciliations", "get_tenant_risk_summary"] + _RAG,
+                  "get_cam_reconciliations", "get_tenant_risk_summary", "create_maintenance_request"] + _RAG,
 }
 
 
@@ -157,7 +157,7 @@ def _run_specialist(state: AgentState, tool_names: list[str], role: str) -> Agen
             prompt=SystemMessage(content=system_prompt),
         )
         try:
-            result = agent.invoke({"messages": [HumanMessage(content=state["question"])]})
+            result = agent.invoke({"messages": [HumanMessage(content=state["question"])]}, config={"recursion_limit": 50})
             messages = result.get("messages", [])
 
             for msg in reversed(messages):
@@ -293,7 +293,7 @@ def run_agent(session_id: str, question: str) -> dict:
         "tools_called": [],
         "error": "",
     }
-    final = graph.invoke(initial)
+    final = graph.invoke(initial, config={"recursion_limit": 50})
     return {
         "answer":       final.get("answer", "No answer generated."),
         "steps":        final.get("steps", []),
@@ -356,6 +356,7 @@ async def stream_agent(session_id: str, question: str) -> AsyncGenerator[dict, N
             async for event in agent.astream_events(
                 {"messages": [HumanMessage(content=question)]},
                 version="v2",
+                config={"recursion_limit": 50},
             ):
                 kind = event["event"]
 

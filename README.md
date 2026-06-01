@@ -220,6 +220,8 @@ Every page has a floating AI Copilot panel powered by a **LangGraph multi-agent 
 | **Semantic Cache** | Repeat questions answered instantly from cache (0.92 cosine similarity threshold) — no LLM call needed |
 | **Feedback Buttons** | 👍 / 👎 on every response — stored in Supabase for continuous evaluation |
 | **RAG Integration** | All specialists can call `search_documents` to answer questions grounded in your uploaded documents |
+| **Voice Agent** | 🎙 mic button → speak your question → agent answers → 🔊 browser reads response aloud (Web Speech API, Chrome/Edge) |
+| **Write Tools** | Agents can create records directly — `create_maintenance_request`, `create_rfi` — results visible in UI immediately |
 
 **Specialists:**
 
@@ -239,8 +241,8 @@ Four layers of protection run on every input and output before the agent ever se
 
 | Layer | What it catches |
 |---|---|
-| **Prompt Injection Detection** | 17 regex patterns — jailbreaks, role-play overrides, "ignore previous instructions", DAN, system prompt leaks |
-| **Topic Guardrail** | Off-domain questions (recipes, politics, general coding) are rejected with a clear message |
+| **Prompt Injection Detection** | 16 regex patterns — jailbreaks, role-play overrides, "ignore previous instructions", DAN, system prompt leaks |
+| **Topic Guardrail** | Off-domain questions (recipes, politics, harmful content, weapons) are rejected with a clear message |
 | **Output Moderation** | Harmful content patterns blocked on the way out — with construction-safe exceptions (e.g. "explosive" in a demolition context is fine) |
 | **JSON Schema Validation** | Every agent response coerced to `AgentResponse` Pydantic schema — malformed outputs never reach the UI |
 
@@ -255,7 +257,7 @@ Four layers of protection run on every input and output before the agent ever se
 | **Chunking** | Smart chunking: section-aware for contracts, paragraph-aware for reports, 512-token overlap fallback |
 | **Hybrid Retrieval** | 70% cosine similarity + 30% BM25 keyword score — best of both worlds |
 | **Reranking** | Cohere Rerank API (optional) for precision boost; falls back to hybrid score if key absent |
-| **Semantic Cache** | Cache hits at ≥0.92 cosine similarity skip the LLM entirely — stored in `semantic_cache` table |
+| **Semantic Cache** | Cache hits at ≥0.92 cosine similarity skip the LLM entirely — 20-minute TTL, auto-invalidated on any write operation |
 | **Cross-Session Memory** | LLM extracts key facts after each answer and stores them in `agent_memory` — recalled by future sessions |
 
 ---
@@ -314,7 +316,9 @@ This branch adds an **MCP (Model Context Protocol) server** so Claude Desktop ca
 | **Database** | Supabase (PostgreSQL) — 15 tables, all RLS disabled (service key) |
 | **LLM** | LLaMA 3.1 8B Instant via Groq API |
 | **LLM Router** | LLaMA 3.1 8B (fast) · LLaMA 4 Scout 17B (balanced) · LLaMA 3.3 70B (complex) via Groq |
-| **Multi-Agent** | LangGraph 1.x `create_react_agent` — 5 specialist agents with keyword supervisor routing |
+| **Multi-Agent** | LangGraph 1.x `create_react_agent` — 5 specialist agents with keyword supervisor routing, recursion limit 50 |
+| **HuggingFace Models** | BART-large-cnn (summarization) · BART-MNLI (zero-shot) · BERT-NER · RoBERTa-SQuAD2 (extractive QA) · CLIP · BLIP — selectable per task in Settings |
+| **Voice Agent** | Browser Web Speech API — speak to AI Copilot, responses read back via SpeechSynthesis (Chrome/Edge, free) |
 | **Vision AI** | Gemini 2.0 Flash (primary) · Groq LLaMA 4 Scout vision via frame extraction (fallback) |
 | **Embeddings** | fastembed `BAAI/bge-small-en-v1.5` (384-dim, ONNX, CPU-only) |
 | **Vector Store** | PGVector in Supabase + FAISS (legacy document Q&A) |
@@ -336,6 +340,7 @@ prism/
 ├── backend/
 │   ├── main.py                  ← All FastAPI routes (single file)
 │   ├── mcp_server.py            ← MCP server — exposes tools to Claude Desktop
+│   ├── architecture-design.html ← Canvas-drawn system architecture diagram
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── supabase_schema.sql      ← Core 15 tables (run in Supabase SQL editor)
@@ -977,7 +982,8 @@ gcloud run deploy prism-backend `
   --allow-unauthenticated `
   --set-env-vars "GROQ_API_KEY=...,GROQ_MODEL=llama-3.1-8b-instant,GEMINI_API_KEY=...,SUPABASE_URL=...,SUPABASE_SERVICE_KEY=..." `
   --memory 4Gi `
-  --timeout 300
+  --timeout 300 `
+  --concurrency 10
 ```
 
 > Use `4Gi` — fastembed loads ONNX models at startup and will OOM at 2Gi.
@@ -996,7 +1002,7 @@ gcloud run deploy prism-backend `
 | `COHERE_API_KEY` | backend/.env | Optional — enables Cohere Rerank for RAG precision |
 | `LANGCHAIN_API_KEY` | backend/.env | Optional — enables LangSmith tracing |
 | `LANGCHAIN_TRACING_V2` | backend/.env | Set to `true` to activate LangSmith |
-| `HUGGINGFACE_API_KEY` | backend/.env | Optional — CLIP zero-shot + BLIP captioning via HF Inference API (free tier) |
+| `HUGGINGFACE_API_KEY` | backend/.env | CLIP · BLIP · BART · BERT-NER · RoBERTa via HF Inference API — required for HuggingFace provider in Settings |
 | `VITE_API_URL` | frontend/.env.production | Backend URL (Cloud Run URL in prod) |
 
 ---

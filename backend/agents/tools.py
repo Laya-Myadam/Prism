@@ -4,7 +4,24 @@ Tools are bound to a session_id at construction time.
 """
 import os, json
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional
+
+
+# ── Input schemas for write tools ─────────────────────────────────────────────
+
+class CreateMaintenanceInput(BaseModel):
+    description: str              = Field(description="Description of the maintenance issue")
+    unit:        str              = Field(default="Not specified", description="Unit number or location")
+    category:    str              = Field(default="General", description="Category e.g. Appliance, Plumbing, Electrical, HVAC")
+    priority:    str              = Field(default="Medium", description="Priority: Low, Medium, High, or Emergency")
+
+class CreateRFIInput(BaseModel):
+    subject:     str              = Field(description="RFI subject line")
+    description: str              = Field(default="", description="Detailed description of the question or clarification needed")
+    priority:    str              = Field(default="Medium", description="Priority: Low, Medium, High, or Critical")
+    assigned_to: str              = Field(default="Architect", description="Trade or person the RFI is assigned to")
+    due_date:    Optional[str]    = Field(default=None, description="Due date in MM/DD/YYYY or YYYY-MM-DD format")
 
 
 # ── Data access — Supabase direct (cached client, no httpx loop-back) ─────────
@@ -277,6 +294,49 @@ def build_tools(session_id: str) -> list:
                 lines.append(f"  - {r.get('name','?')} (Unit {r.get('unit','?')}) — Score: {r.get('risk_score','?')} | Lease ends: {r.get('lease_end','?')}")
         return "\n".join(lines)
 
+    # ── Write tools ──────────────────────────────────────────────────────────
+
+    def create_maintenance_request(description: str, unit: str = "Not specified", category: str = "General", priority: str = "Medium") -> str:
+        """Create a new maintenance request. Use when tenant/user reports an issue like broken appliance, plumbing, electrical etc."""
+        import uuid
+        sb = _supa()
+        if not sb:
+            return "Database unavailable — cannot create maintenance request right now."
+        try:
+            rid = "MR-" + str(uuid.uuid4())[:6].upper()
+            row = {
+                "id": rid, "session_id": session_id,
+                "description": description, "unit": unit,
+                "category": category, "priority": priority,
+                "status": "Open", "assigned_to": "Unassigned", "estimated_cost": 0,
+            }
+            sb.table("maintenance_requests").insert(row).execute()
+            return f"Maintenance request created.\nID: {rid} | Unit: {unit} | Issue: {description} | Priority: {priority} | Status: Open"
+        except Exception as e:
+            return f"Could not create maintenance request: {e}"
+
+    def create_rfi(subject: str, description: str = "", priority: str = "Medium", assigned_to: str = "Architect", due_date: str = "") -> str:
+        """Create a new RFI (Request for Information) in the construction project register."""
+        import uuid
+        from datetime import date
+        sb = _supa()
+        if not sb:
+            return "Database unavailable — cannot create RFI right now."
+        try:
+            rid = "RFI-" + str(uuid.uuid4())[:6].upper()
+            row = {
+                "id": rid, "session_id": session_id,
+                "subject": subject, "description": description or subject,
+                "assigned_to": assigned_to, "submitted_by": "AI Copilot",
+                "date_submitted": date.today().isoformat(),
+                "date_due": due_date or "",
+                "priority": priority, "status": "Open", "response": None,
+            }
+            sb.table("rfis").insert(row).execute()
+            return f"RFI created. ID: {rid} | Subject: {subject} | Assigned to: {assigned_to} | Priority: {priority} | Due: {due_date or 'Not set'} | Status: Open"
+        except Exception as e:
+            return f"Could not create RFI: {e}"
+
     # ── RAG document search ───────────────────────────────────────────────────
 
     def search_documents(query: str = "") -> str:
@@ -317,6 +377,9 @@ def build_tools(session_id: str) -> list:
         StructuredTool.from_function(func=cam_reconciliations,  name="get_cam_reconciliations",  description="Get CAM reconciliation reports with total pool and per-tenant billable amounts."),
         StructuredTool.from_function(func=tenant_risk_summary,  name="get_tenant_risk_summary",  description="Summarize tenant risk levels across all tenants and flag high-risk leases."),
         # RAG document search
-        StructuredTool.from_function(func=search_documents,     name="search_documents",         description="Semantic search over uploaded project documents (contracts, specs, lease PDFs, reports). Use for specific clauses, terms, or document content."),
+        StructuredTool.from_function(func=search_documents,          name="search_documents",          description="Semantic search over uploaded project documents (contracts, specs, lease PDFs, reports). Use for specific clauses, terms, or document content."),
+        # Write tools
+        StructuredTool.from_function(func=create_maintenance_request, name="create_maintenance_request", args_schema=CreateMaintenanceInput, description="Create a new maintenance request when a tenant or user reports an issue — broken appliance, plumbing, electrical, HVAC, etc. Extract unit, category, and priority from the user message."),
+        StructuredTool.from_function(func=create_rfi,                 name="create_rfi",                args_schema=CreateRFIInput,          description="Create a new RFI (Request for Information). Extract subject, assigned_to, priority, due_date, and description from the user message."),
     ]
     return tools

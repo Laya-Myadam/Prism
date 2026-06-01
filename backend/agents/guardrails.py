@@ -75,6 +75,9 @@ _BLOCKED_KEYWORDS = {
     "joke", "riddle", "poem", "story", "fiction",
     "homework", "essay", "thesis",
     "social media", "instagram", "tiktok", "twitter",
+    "harmful content", "harmful", "weapon", "bomb", "explosive",
+    "hack", "hacking", "malware", "exploit", "virus", "ransomware",
+    "poison", "drug", "illegal", "kill", "murder", "violence",
 }
 
 

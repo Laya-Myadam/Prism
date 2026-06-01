@@ -1565,6 +1565,10 @@ async def rfi_register_create(body: RFICreate):
     reg.append(rfi)
     sb_insert("rfis", rfi)
     save_session(body.session_id)
+    try:
+        from agents.rag.cache import invalidate_session_cache
+        invalidate_session_cache(body.session_id)
+    except Exception: pass
     return rfi
 
 @app.get("/construction/rfi-register/{session_id}")
@@ -1670,6 +1674,10 @@ async def co_register_create(body: COCreate):
         "submitted_by": body.submitted_by, "reason": body.category,
     })
     save_session(body.session_id)
+    try:
+        from agents.rag.cache import invalidate_session_cache
+        invalidate_session_cache(body.session_id)
+    except Exception: pass
     return co
 
 @app.get("/construction/co-register/{session_id}")
@@ -1875,6 +1883,10 @@ async def punch_create(body: PunchCreate):
         "status": "Open", "ball_in_court": "Contractor",
     })
     save_session(body.session_id)
+    try:
+        from agents.rag.cache import invalidate_session_cache
+        invalidate_session_cache(body.session_id)
+    except Exception: pass
     return item
 
 @app.get("/construction/punch/{session_id}")
@@ -2009,6 +2021,10 @@ async def submittal_create(body: SubmittalCreate):
         "required_date": required, "review_deadline": body.review_deadline,
     })
     save_session(body.session_id)
+    try:
+        from agents.rag.cache import invalidate_session_cache
+        invalidate_session_cache(body.session_id)
+    except Exception: pass
     return item
 
 def _coerce_submittal(s: dict) -> dict:
@@ -2187,6 +2203,10 @@ async def daily_log_create(body: DailyLogCreate):
         "incidents": incidents or "None",
     })
     save_session(body.session_id)
+    try:
+        from agents.rag.cache import invalidate_session_cache
+        invalidate_session_cache(body.session_id)
+    except Exception: pass
     return {"log": log}
 
 def _coerce_daily_log(log: dict) -> dict:

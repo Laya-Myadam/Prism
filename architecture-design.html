@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>PRISM Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #fff; font-family: Arial, sans-serif; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width = 1100;
+canvas.height = 780;
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function box(x, y, w, h, lines) {
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = '#000';
+  ctx.font = '12px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const lineH = 16;
+  const startY = y + h / 2 - ((lines.length - 1) * lineH) / 2;
+  lines.forEach((l, i) => ctx.fillText(l, x + w / 2, startY + i * lineH));
+}
+
+function roundBox(x, y, w, h, lines) {
+  const r = 10;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#000';
+  ctx.font = '12px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const lineH = 16;
+  const startY = y + h / 2 - ((lines.length - 1) * lineH) / 2;
+  lines.forEach((l, i) => ctx.fillText(l, x + w / 2, startY + i * lineH));
+}
+
+function arrow(x1, y1, x2, y2, label) {
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  // arrowhead
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const len = 8;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - len * Math.cos(angle - 0.4), y2 - len * Math.sin(angle - 0.4));
+  ctx.lineTo(x2 - len * Math.cos(angle + 0.4), y2 - len * Math.sin(angle + 0.4));
+  ctx.closePath();
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  if (label) {
+    ctx.fillStyle = '#000';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    ctx.fillText(label, mx + 6, my - 8);
+  }
+}
+
+function dashedArrow(x1, y1, x2, y2, label) {
+  ctx.setLineDash([5, 4]);
+  arrow(x1, y1, x2, y2, label);
+  ctx.setLineDash([]);
+}
+
+function label(x, y, txt, align) {
+  ctx.fillStyle = '#000';
+  ctx.font = '10px Arial';
+  ctx.textAlign = align || 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(txt, x, y);
+}
+
+function title(x, y, txt) {
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(txt, x, y);
+}
+
+// ── layout ────────────────────────────────────────────────────────────────────
+// Row 1: User → Frontend → FastAPI Backend
+// Row 2: Multi-Agent Orchestrator (LangGraph)
+// Row 3: Specialist Agents (5)
+// Row 4: Tools + Data Layer
+// Row 5: External AI Services
+
+const W = canvas.width;
+
+// ── TITLE ─────────────────────────────────────────────────────────────────────
+ctx.fillStyle = '#000';
+ctx.font = 'bold 16px Arial';
+ctx.textAlign = 'center';
+ctx.fillText('PRISM — AI Platform Architecture', W / 2, 22);
+
+// ── ROW 1: User Interface Layer ───────────────────────────────────────────────
+label(W / 2, 42, '[ User Interface Layer ]', 'center');
+
+// User
+roundBox(30, 55, 90, 60, ['User', '(Browser)']);
+// Frontend
+box(170, 55, 130, 60, ['React + TypeScript', 'Vite / Firebase', 'AI Copilot UI']);
+// FastAPI
+box(360, 55, 130, 60, ['FastAPI Backend', 'REST + SSE', 'Cloud Run']);
+// MCP Server
+roundBox(550, 55, 110, 60, ['MCP Server', 'Claude Desktop', 'Integration']);
+
+// Row 1 arrows
+arrow(120, 85, 170, 85, '');
+arrow(300, 85, 360, 85, '');
+arrow(490, 85, 550, 85, '');
+
+label(145, 75, 'HTTP', 'center');
+label(330, 75, 'REST/SSE', 'center');
+label(523, 75, 'stdio', 'center');
+
+// ── ROW 2: Guardrails ─────────────────────────────────────────────────────────
+label(W / 2, 140, '[ Guardrail Layer ]', 'center');
+
+box(200, 152, 480, 44, ['Guardrails: (1) Prompt Injection Detection   (2) Topic Guardrail   (3) Output Moderation   (4) Pydantic Schema Validation']);
+
+arrow(425, 115, 425, 152, '');
+
+// ── ROW 3: Orchestrator ───────────────────────────────────────────────────────
+label(W / 2, 218, '[ Multi-Agent Orchestration — LangGraph ]', 'center');
+
+box(300, 228, 260, 50, ['Supervisor Node', 'Keyword Router → picks Specialist', 'Smart Model Tier Selection']);
+
+arrow(425, 196, 425, 228, '');
+
+// ── ROW 4: Specialist Agents ──────────────────────────────────────────────────
+label(W / 2, 298, '[ Specialist Agents — LangChain ReAct Loop ]', 'center');
+
+const agents = [
+  { x: 30,  lines: ['SiteOps', 'Agent'] },
+  { x: 230, lines: ['RFI', 'Agent'] },
+  { x: 390, lines: ['Schedule', 'Agent'] },
+  { x: 550, lines: ['Risk', 'Agent'] },
+  { x: 720, lines: ['Property', 'Agent'] },
+];
+agents.forEach(a => box(a.x, 308, 120, 50, a.lines));
+
+// arrows from supervisor to agents
+agents.forEach(a => {
+  const ax = a.x + 60;
+  arrow(425, 278, ax, 308, '');
+});
+
+// ── ROW 5: Tools ─────────────────────────────────────────────────────────────
+label(W / 2, 378, '[ Tool Layer — StructuredTool (LangChain) ]', 'center');
+
+const tools = [
+  { x: 30,  lines: ['get_daily_logs', 'get_weather_risk', 'get_projects'] },
+  { x: 210, lines: ['get_rfis', 'get_change_orders', 'get_obligations'] },
+  { x: 390, lines: ['get_schedule', 'get_punch_list', 'get_submittals'] },
+  { x: 570, lines: ['get_leases', 'get_tenants', 'get_maintenance'] },
+  { x: 750, lines: ['search_documents', '(RAG Retriever)', 'pgvector'] },
+];
+tools.forEach(t => box(t.x, 388, 160, 54, t.lines));
+
+agents.forEach((a, i) => {
+  const ax = a.x + 60;
+  const tx = tools[i].x + 80;
+  arrow(ax, 358, tx, 388, '');
+});
+
+// ── ROW 6: Data Layer ─────────────────────────────────────────────────────────
+label(W / 2, 460, '[ Data & Vector Store Layer ]', 'center');
+
+box(30,  470, 150, 60, ['Supabase', 'PostgreSQL', 'Structured Tables']);
+box(200, 470, 150, 60, ['pgvector', 'document_chunks', 'agent_memory / cache']);
+box(370, 470, 150, 60, ['FAISS', 'In-Memory', 'Session Q&A']);
+box(540, 470, 150, 60, ['DVC', 'Benchmark', 'Data Versioning']);
+box(710, 470, 160, 60, ['MLflow', 'Eval Tracking', 'RAGAS Metrics']);
+
+// arrows from tool layer to data layer
+arrow(110, 442, 105, 470, '');
+arrow(290, 442, 275, 470, '');
+arrow(830, 442, 790, 470, '');
+
+// ── ROW 7: AI Services ────────────────────────────────────────────────────────
+label(W / 2, 548, '[ External AI Services ]', 'center');
+
+box(30,  558, 130, 55, ['Groq LLaMA', '3-Tier Models', '70B / 17B / 8B']);
+box(175, 558, 130, 55, ['Groq Whisper', 'whisper-large-v3', 'Audio Transcription']);
+box(320, 558, 130, 55, ['Gemini 2.0 Flash', 'Vision Analysis', 'Blueprint / Safety']);
+box(465, 558, 130, 55, ['HuggingFace', 'BART / BERT', 'RoBERTa / CLIP / BLIP']);
+box(610, 558, 130, 55, ['Embeddings', 'MiniLM-L6-v2', 'BGE-small-en']);
+box(755, 558, 130, 55, ['Cohere Rerank', 'rerank-english', 'v3.0 (optional)']);
+
+// arrows from orchestrator/agents down to AI services
+arrow(425, 530, 425, 558, '');
+arrow(240, 530, 240, 558, '');
+arrow(385, 530, 385, 558, '');
+
+// ── ROW 8: Eval & Observability ───────────────────────────────────────────────
+label(W / 2, 630, '[ Evaluation & Observability ]', 'center');
+
+box(80,  640, 180, 55, ['RAGAS Evaluation', 'Faithfulness / Relevancy', 'Context Precision']);
+box(290, 640, 180, 55, ['agent_traces Table', 'Latency / Cost / Model', 'Per-run Audit Log']);
+box(500, 640, 180, 55, ['Feedback Loop', 'Thumbs Up/Down', '/eval/feedback API']);
+box(710, 640, 180, 55, ['Playwright E2E', '25 Tests', 'UI + Agent Flows']);
+
+// dashed arrows from data layer to eval
+dashedArrow(790, 530, 170, 640, '');
+dashedArrow(500, 640, 425, 530, 'feedback');
+
+// ── LEGEND ────────────────────────────────────────────────────────────────────
+ctx.strokeStyle = '#000';
+ctx.lineWidth = 1;
+ctx.strokeRect(30, 710, 500, 50);
+ctx.font = 'bold 11px Arial';
+ctx.fillStyle = '#000';
+ctx.textAlign = 'left';
+ctx.fillText('Legend:', 40, 725);
+ctx.font = '10px Arial';
+// solid arrow
+ctx.beginPath(); ctx.moveTo(100, 725); ctx.lineTo(140, 725); ctx.stroke();
+ctx.fillText('Data / Request Flow', 145, 725);
+// dashed arrow
+ctx.setLineDash([4, 3]);
+ctx.beginPath(); ctx.moveTo(100, 745); ctx.lineTo(140, 745); ctx.stroke();
+ctx.setLineDash([]);
+ctx.fillText('Feedback / Eval Signal', 145, 745);
+// box
+ctx.strokeRect(270, 718, 50, 20);
+ctx.fillText('Module / Service', 330, 728);
+// round box
+ctx.beginPath();
+const rx = 270, ry = 742, rw = 50, rh = 18, rr = 5;
+ctx.moveTo(rx+rr,ry); ctx.lineTo(rx+rw-rr,ry); ctx.arcTo(rx+rw,ry,rx+rw,ry+rr,rr);
+ctx.lineTo(rx+rw,ry+rh-rr); ctx.arcTo(rx+rw,ry+rh,rx+rw-rr,ry+rh,rr);
+ctx.lineTo(rx+rr,ry+rh); ctx.arcTo(rx,ry+rh,rx,ry+rh-rr,rr);
+ctx.lineTo(rx,ry+rr); ctx.arcTo(rx,ry,rx+rr,ry,rr); ctx.closePath(); ctx.stroke();
+ctx.fillText('External / User', 330, 751);
+</script>
+</body>
+</html>

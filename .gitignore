@@ -61,3 +61,11 @@ Thumbs.db
 
 # Local MCP config (has machine-specific paths)
 backend/claude_desktop_config.json
+
+# Speech / audio recording temp files
+*.webm
+*.ogg
+frontend/public/recordings/
+
+# Architecture diagram (generated, not source)
+# architecture-design.html  ← keep committed — project artifact

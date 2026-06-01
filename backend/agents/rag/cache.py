@@ -1,11 +1,16 @@
 """
 Semantic caching — skip the LLM entirely when a near-identical question
 was already answered. Threshold 0.92 = very high similarity required.
+
+TTL: operational data expires after CACHE_TTL_MINUTES.
+Invalidation: call invalidate_session_cache(session_id) on any write.
 """
 import os
+from datetime import datetime, timezone, timedelta
 
 _client = None
 SIMILARITY_THRESHOLD = 0.92
+CACHE_TTL_MINUTES    = 20   # entries older than this are treated as misses
 
 
 def _sb():
@@ -45,8 +50,33 @@ def get_cached(session_id: str, question: str) -> dict | None:
             return None
 
         row = result.data[0]
+
+        # ── TTL check ─────────────────────────────────────────────────────────
+        # Fetch created_at for this cache row and reject if stale
+        try:
+            meta = sb.table("semantic_cache") \
+                .select("id, created_at, hit_count") \
+                .eq("id", str(row["id"])) \
+                .single() \
+                .execute()
+            if meta.data:
+                created_at_str = meta.data.get("created_at", "")
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                    age = datetime.now(timezone.utc) - created_at
+                    if age > timedelta(minutes=CACHE_TTL_MINUTES):
+                        # Stale — delete and treat as cache miss
+                        sb.table("semantic_cache").delete().eq("id", str(row["id"])).execute()
+                        print(f"[cache] TTL expired ({int(age.total_seconds()/60)}m old) — invalidated")
+                        return None
+                hit_count = meta.data.get("hit_count", 0)
+            else:
+                hit_count = 0
+        except Exception:
+            hit_count = 0
+
         sb.table("semantic_cache") \
-            .update({"hit_count": row.get("hit_count", 0) + 1, "last_hit_at": "now()"}) \
+            .update({"hit_count": hit_count + 1, "last_hit_at": "now()"}) \
             .eq("id", str(row["id"])) \
             .execute()
 
@@ -60,6 +90,22 @@ def get_cached(session_id: str, question: str) -> dict | None:
     except Exception as e:
         print(f"[cache get_cached]: {e}")
         return None
+
+
+def invalidate_session_cache(session_id: str) -> None:
+    """
+    Delete all cached answers for a session.
+    Call this whenever data is written (new RFI, CO, daily log, punch item etc.)
+    so stale answers are never returned after a data change.
+    """
+    sb = _sb()
+    if not sb:
+        return
+    try:
+        sb.table("semantic_cache").delete().eq("session_id", session_id).execute()
+        print(f"[cache] invalidated session cache: {session_id}")
+    except Exception as e:
+        print(f"[cache invalidate_session_cache]: {e}")
 
 
 def store_cached(session_id: str, question: str, response: dict) -> None:

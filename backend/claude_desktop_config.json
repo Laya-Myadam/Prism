@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "prism": {
-      "command": "python",
+      "command": "C:/Users/Laya Myadam/prism/backend/venv/Scripts/python.exe",
       "args": ["C:/Users/Laya Myadam/prism/backend/mcp_server.py"],
       "env": {
-        "PRISM_API_URL": "http://localhost:8000"
+        "PRISM_API_URL": "https://prism-backend-rpjdrxkmsq-uc.a.run.app"
       }
     }
   }

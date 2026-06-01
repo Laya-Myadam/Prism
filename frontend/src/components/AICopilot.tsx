@@ -39,6 +39,72 @@ export default function AICopilot({ appState }: { appState: AppState }) {
   const bottomRef                         = useRef<HTMLDivElement>(null);
   const abortRef                          = useRef<AbortController | null>(null);
 
+  // ── Voice mode ───────────────────────────────────────────────────────────────
+  const [voiceMode, setVoiceMode]   = useState(false);
+  const [listening, setListening]   = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const recognitionRef              = useRef<any>(null);
+
+  const speak = (text: string) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text.replace(/\[.*?\]/g, "").slice(0, 500));
+    utt.rate = 1.0; utt.pitch = 1.0;
+    const voices = window.speechSynthesis.getVoices();
+    const eng = voices.find(v => v.lang.startsWith("en"));
+    if (eng) utt.voice = eng;
+    window.speechSynthesis.speak(utt);
+  };
+
+  // Auto-speak when voice mode on and AI finishes responding
+  useEffect(() => {
+    if (!voiceMode) return;
+    const last = messages[messages.length - 1];
+    if (last?.role === "ai" && !last.streaming && last.text) {
+      speak(last.text);
+    }
+  }, [messages, voiceMode]);
+
+  const startListening = () => {
+    const SR = (window as any).SpeechRecognition
+           || (window as any).webkitSpeechRecognition
+           || (window as any).msSpeechRecognition;
+    if (!SR) { setVoiceError("Voice not supported in this browser. Use Chrome or Edge."); return; }
+
+    // Request mic permission explicitly first — required on Edge
+    navigator.mediaDevices?.getUserMedia({ audio: true })
+      .catch(() => { setVoiceError("Mic blocked — allow microphone in browser settings."); return; });
+    setVoiceError("");
+    const rec = new SR();
+    rec.lang = "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onstart  = () => setListening(true);
+    rec.onend    = () => setListening(false);
+    rec.onerror  = (e: any) => {
+      setListening(false);
+      const msg: Record<string, string> = {
+        "not-allowed":  "Mic blocked — click the 🔒 icon in the address bar and allow microphone.",
+        "no-speech":    "No speech detected — try speaking closer to the mic.",
+        "network":      "Network error — SpeechRecognition needs internet (uses Google servers).",
+        "aborted":      "",
+      };
+      setVoiceError(msg[e.error] ?? `Mic error: ${e.error}`);
+    };
+    rec.onresult = (e: any) => {
+      const transcript = e.results[0][0].transcript;
+      setInput(transcript);
+      setTimeout(() => send(transcript), 100);
+    };
+    rec.start();
+    recognitionRef.current = rec;
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
+    setListening(false);
+  };
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -256,6 +322,14 @@ export default function AICopilot({ appState }: { appState: AppState }) {
         .feedback-btn:hover { background:rgba(255,255,255,0.08); }
         .feedback-btn.active-up   { color:#4ade80; }
         .feedback-btn.active-down { color:#f87171; }
+        @keyframes micPulse {
+          0%,100% { box-shadow:0 0 0 0 rgba(248,113,113,0.5); }
+          50%      { box-shadow:0 0 0 8px rgba(248,113,113,0); }
+        }
+        .mic-btn { width:34px; height:34px; border-radius:8px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; align-self:flex-end; transition:background 0.15s; }
+        .mic-btn.idle     { background:rgba(255,255,255,0.06); }
+        .mic-btn.active   { background:rgba(248,113,113,0.2); animation:micPulse 1s ease-in-out infinite; }
+        .mic-btn.voice-on { background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.3); }
       `}</style>
 
       {/* Floating button */}
@@ -469,6 +543,25 @@ export default function AICopilot({ appState }: { appState: AppState }) {
             <div ref={bottomRef} />
           </div>
 
+          {/* Voice status bar */}
+          {(listening || voiceError || voiceMode) && (
+            <div style={{ padding:"6px 14px", borderTop:"1px solid rgba(255,255,255,0.06)", display:"flex", alignItems:"center", gap:8 }}>
+              {listening && (
+                <>
+                  <div style={{ width:7, height:7, borderRadius:"50%", background:"#f87171", animation:"micPulse 1s ease-in-out infinite" }}/>
+                  <span style={{ fontSize:11, color:"#f87171", fontFamily:"'IBM Plex Mono',monospace" }}>Listening…</span>
+                </>
+              )}
+              {!listening && voiceMode && !voiceError && (
+                <>
+                  <div style={{ width:7, height:7, borderRadius:"50%", background:"#4ade80" }}/>
+                  <span style={{ fontSize:11, color:"#4ade80", fontFamily:"'IBM Plex Mono',monospace" }}>Voice mode on — mic to speak</span>
+                </>
+              )}
+              {voiceError && <span style={{ fontSize:11, color:"#f87171", fontFamily:"'IBM Plex Mono',monospace" }}>{voiceError}</span>}
+            </div>
+          )}
+
           {/* Input */}
           <div style={{
             padding:"10px 14px",
@@ -478,11 +571,44 @@ export default function AICopilot({ appState }: { appState: AppState }) {
             <textarea
               className="copilot-input"
               rows={1}
-              placeholder="Ask about RFIs, schedule, risks, leases…"
+              placeholder={voiceMode ? "Voice mode — click 🎙 to speak…" : "Ask about RFIs, schedule, risks, leases…"}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
             />
+
+            {/* Mic button */}
+            <button
+              className={`mic-btn ${listening ? "active" : voiceMode ? "voice-on" : "idle"}`}
+              onClick={listening ? stopListening : startListening}
+              title={listening ? "Stop listening" : "Speak your question"}
+            >
+              {listening ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <rect x="6" y="6" width="12" height="12" rx="2" fill="#f87171"/>
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke={voiceMode ? "#4ade80" : "rgba(255,255,255,0.4)"} strokeWidth="2"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke={voiceMode ? "#4ade80" : "rgba(255,255,255,0.4)"} strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              )}
+            </button>
+
+            {/* Voice mode toggle */}
+            <button
+              onClick={() => { setVoiceMode(v => !v); window.speechSynthesis?.cancel(); }}
+              title={voiceMode ? "Turn off voice responses" : "Turn on voice responses"}
+              style={{
+                width:34, height:34, borderRadius:8, flexShrink:0, alignSelf:"flex-end",
+                border: voiceMode ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(255,255,255,0.08)",
+                background: voiceMode ? "rgba(74,222,128,0.1)" : "rgba(255,255,255,0.04)",
+                cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:14, transition:"all 0.15s",
+              }}
+            >🔊</button>
+
+            {/* Send button */}
             <button onClick={() => send()} disabled={loading || !input.trim()} style={{
               width:34, height:34, borderRadius:8, border:"none",
               background:input.trim() ? "#4ade80" : "rgba(255,255,255,0.06)",
