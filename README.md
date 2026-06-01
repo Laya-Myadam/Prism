@@ -84,7 +84,7 @@ Upload any construction document — PRISM classifies it, indexes it, and makes 
 
 | Tool | What makes it different |
 |---|---|
-| **RFI Register** | Full log with status tracking, days-open counter, and AI-generated responses referencing your project documents |
+| **RFI Register** | Full log with status tracking, days-open counter, AI-generated responses, and refresh button to surface agent-created RFIs instantly |
 | **Change Order Register** | Contract value waterfall (Original → Approved → Pending → Revised), AI clause assessment, one-click approve/reject |
 | **Punch List** | Priority-scored deficiency tracking with ball-in-court workflow and AI auto-categorization |
 | **Unit Turnover Checklist** | 25-point inspection checklist auto-saved to DB on every toggle — tracks all saved units with In Progress / Complete status |
@@ -221,7 +221,7 @@ Every page has a floating AI Copilot panel powered by a **LangGraph multi-agent 
 | **Feedback Buttons** | 👍 / 👎 on every response — stored in Supabase for continuous evaluation |
 | **RAG Integration** | All specialists can call `search_documents` to answer questions grounded in your uploaded documents |
 | **Voice Agent** | 🎙 mic button → speak your question → agent answers → 🔊 browser reads response aloud (Web Speech API, Chrome/Edge) |
-| **Write Tools** | Agents can create records directly — `create_maintenance_request`, `create_rfi` — results visible in UI immediately |
+| **Write Tools** | Agents can create records directly — `create_maintenance_request` (unit, category, priority), `create_rfi` (subject, assigned_to, priority, due_date) — Pydantic-validated schemas, results visible in UI immediately |
 
 **Specialists:**
 
